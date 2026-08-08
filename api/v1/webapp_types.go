@@ -31,9 +31,13 @@ type WebAppSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// foo is an example field of WebApp. Edit webapp_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// Image is the container image to be used for the web application. It should be a valid image reference, e.g., "nginx:latest".
+	Image string `json:"image"` 
+	// Replicas is the desired number of replicas for the web application. It should be a non-negative integer.
+	Replicas int32 `json:"replicas"`
+	// Port is the port on which the web application will listen. It should be a valid port number (1-65535).
+	Port int32 `json:"port"`
+	
 }
 
 // WebAppStatus defines the observed state of WebApp.
