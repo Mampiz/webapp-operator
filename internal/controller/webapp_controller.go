@@ -18,13 +18,16 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,7 +40,8 @@ import (
 // WebAppReconciler reconciles a WebApp object
 type WebAppReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Recorder record.EventRecorder
+	Scheme   *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=platform.miportfolio.com,resources=webapps,verbs=get;list;watch;create;update;patch;delete
@@ -48,7 +52,7 @@ type WebAppReconciler struct {
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile ensures a Deployment, a Service and (optionally) an HPA exist to
-// match the WebApp spec.
+// match the WebApp spec, and reports the result in the WebApp status.
 func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -91,7 +95,11 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return controllerutil.SetControllerReference(&webapp, deploy, r.Scheme)
 	})
 	if err != nil {
+		r.Recorder.Eventf(&webapp, corev1.EventTypeWarning, "ReconcileFailed", "failed to reconcile Deployment: %v", err)
 		return ctrl.Result{}, err
+	}
+	if op != controllerutil.OperationResultNone {
+		r.Recorder.Eventf(&webapp, corev1.EventTypeNormal, "DeploymentReconciled", "Deployment %s %s", deploy.Name, op)
 	}
 	log.Info("reconciled deployment", "operation", op, "name", deploy.Name)
 
@@ -114,11 +122,15 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return controllerutil.SetControllerReference(&webapp, service, r.Scheme)
 	})
 	if err != nil {
+		r.Recorder.Eventf(&webapp, corev1.EventTypeWarning, "ReconcileFailed", "failed to reconcile Service: %v", err)
 		return ctrl.Result{}, err
+	}
+	if op != controllerutil.OperationResultNone {
+		r.Recorder.Eventf(&webapp, corev1.EventTypeNormal, "ServiceReconciled", "Service %s %s", service.Name, op)
 	}
 	log.Info("reconciled service", "operation", op, "name", service.Name)
 
-	// --- HorizontalPodAutoscaler ---
+	// --- HorizontalPodAutoscaler (only if autoscaling is configured) ---
 	if webapp.Spec.Autoscaling != nil {
 		hpa := &autoscalingv2.HorizontalPodAutoscaler{
 			ObjectMeta: metav1.ObjectMeta{
@@ -147,9 +159,34 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return controllerutil.SetControllerReference(&webapp, hpa, r.Scheme)
 		})
 		if err != nil {
+			r.Recorder.Eventf(&webapp, corev1.EventTypeWarning, "ReconcileFailed", "failed to reconcile HPA: %v", err)
 			return ctrl.Result{}, err
 		}
+		if op != controllerutil.OperationResultNone {
+			r.Recorder.Eventf(&webapp, corev1.EventTypeNormal, "HPAReconciled", "HorizontalPodAutoscaler %s %s", hpa.Name, op)
+		}
 		log.Info("reconciled hpa", "operation", op, "name", hpa.Name)
+	}
+
+	// --- Status: report an "Available" condition based on Deployment readiness ---
+	available := deploy.Status.ReadyReplicas > 0 &&
+		deploy.Status.ReadyReplicas == deploy.Status.Replicas
+
+	condition := metav1.Condition{
+		Type:    "Available",
+		Status:  metav1.ConditionFalse,
+		Reason:  "DeploymentNotReady",
+		Message: fmt.Sprintf("%d/%d replicas ready", deploy.Status.ReadyReplicas, deploy.Status.Replicas),
+	}
+	if available {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "DeploymentReady"
+		condition.Message = "all replicas are ready"
+	}
+	meta.SetStatusCondition(&webapp.Status.Conditions, condition)
+
+	if err := r.Status().Update(ctx, &webapp); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
