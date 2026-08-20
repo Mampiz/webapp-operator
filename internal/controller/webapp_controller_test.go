@@ -21,67 +21,136 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
 )
 
+// newReconciler builds a WebAppReconciler wired for tests. It uses the envtest
+// client and a fake event recorder (so r.Recorder.Event does not panic).
+func newReconciler() *WebAppReconciler {
+	return &WebAppReconciler{
+		Client:   k8sClient,
+		Scheme:   k8sClient.Scheme(),
+		Recorder: record.NewFakeRecorder(100),
+	}
+}
+
 var _ = Describe("WebApp Controller", func() {
-	Context("When reconciling a resource", func() {
-		const (
-			resourceName      = "test-resource"
-			resourceNamespace = "default"
-		)
+	ctx := context.Background()
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
-		}
-		webapp := &platformv1.WebApp{}
+	Context("When reconciling a WebApp without autoscaling", func() {
+		const name = "test-webapp"
+		key := types.NamespacedName{Name: name, Namespace: "default"}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind WebApp")
-			err := k8sClient.Get(ctx, typeNamespacedName, webapp)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &platformv1.WebApp{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			By("creating a valid WebApp resource")
+			webapp := &platformv1.WebApp{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: platformv1.WebAppSpec{
+					Image:    "nginx:latest",
+					Replicas: 3,
+					Port:     8080,
+				},
 			}
+			Expect(k8sClient.Create(ctx, webapp)).To(Succeed())
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &platformv1.WebApp{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance WebApp")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			By("deleting the WebApp resource")
+			webapp := &platformv1.WebApp{}
+			Expect(k8sClient.Get(ctx, key, webapp)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, webapp)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &WebAppReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
+		It("creates a Deployment that matches the spec", func() {
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			deployment := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: name + "-deployment", Namespace: "default",
+			}, deployment)).To(Succeed())
+
+			Expect(*deployment.Spec.Replicas).To(Equal(int32(3)))
+			container := deployment.Spec.Template.Spec.Containers[0]
+			Expect(container.Image).To(Equal("nginx:latest"))
+			Expect(container.Ports[0].ContainerPort).To(Equal(int32(8080)))
+		})
+
+		It("creates a Service that matches the spec", func() {
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			service := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: name + "-service", Namespace: "default",
+			}, service)).To(Succeed())
+
+			Expect(service.Spec.Ports[0].Port).To(Equal(int32(8080)))
+			Expect(service.Spec.Selector).To(HaveKeyWithValue("app", name))
+		})
+
+		It("does not create an HPA when autoscaling is disabled", func() {
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name: name + "-autoscaler", Namespace: "default",
+			}, hpa)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+	})
+
+	Context("When reconciling a WebApp with autoscaling", func() {
+		const name = "test-webapp-hpa"
+		key := types.NamespacedName{Name: name, Namespace: "default"}
+
+		BeforeEach(func() {
+			By("creating a WebApp with an autoscaling block")
+			webapp := &platformv1.WebApp{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: platformv1.WebAppSpec{
+					Image:    "nginx:latest",
+					Replicas: 2,
+					Port:     8080,
+					Autoscaling: &platformv1.AutoscalingSpec{
+						MinReplicas:         2,
+						MaxReplicas:         5,
+						CPUThresholdPercent: 70,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, webapp)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			webapp := &platformv1.WebApp{}
+			Expect(k8sClient.Get(ctx, key, webapp)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, webapp)).To(Succeed())
+		})
+
+		It("creates an HPA that matches the autoscaling spec", func() {
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: name + "-autoscaler", Namespace: "default",
+			}, hpa)).To(Succeed())
+
+			Expect(*hpa.Spec.MinReplicas).To(Equal(int32(2)))
+			Expect(hpa.Spec.MaxReplicas).To(Equal(int32(5)))
+			Expect(hpa.Spec.ScaleTargetRef.Name).To(Equal(name + "-deployment"))
 		})
 	})
 })
