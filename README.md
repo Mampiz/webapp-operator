@@ -1,5 +1,11 @@
 # WebApp Operator
 
+[![Tests](https://github.com/Mampiz/webapp-operator/actions/workflows/test.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/test.yml)
+[![Lint](https://github.com/Mampiz/webapp-operator/actions/workflows/lint.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/lint.yml)
+[![Release image](https://github.com/Mampiz/webapp-operator/actions/workflows/release.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/release.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
+
 A Kubernetes [Operator](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/) written in Go that turns a single high-level `WebApp` resource into a fully managed application stack — a **Deployment**, a **Service**, and an optional **HorizontalPodAutoscaler** — kept continuously in sync with the desired state.
 
 Built with [Kubebuilder](https://book.kubebuilder.io/) and [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
@@ -116,12 +122,45 @@ EOF
 
 # 3. Watch the operator create everything
 kubectl get deployment,service,hpa
-kubectl describe webapp my-api   # see Conditions + Events
 ```
 
-Try the self-healing: `kubectl delete deployment my-api-deployment` and watch it reappear.
+Expected output:
 
-The API server rejects invalid specs before the controller runs — e.g. `cpuThresholdPercent: 150` or `maxReplicas < minReplicas`.
+```text
+NAME                                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/my-api-deployment          2/2     2            2           8s
+
+NAME                     TYPE        CLUSTER-IP     PORT(S)   AGE
+service/my-api-service   ClusterIP   10.96.90.19    80/TCP    8s
+
+NAME                                                    REFERENCE                      MINPODS   MAXPODS   AGE
+horizontalpodautoscaler.autoscaling/my-api-autoscaler   Deployment/my-api-deployment   2         10        8s
+```
+
+The `WebApp` status reports readiness as a condition:
+
+```console
+$ kubectl get webapp my-api -o jsonpath='{.status.conditions[0]}'
+{"type":"Available","status":"True","reason":"DeploymentReady","message":"all replicas are ready"}
+```
+
+**Self-healing** — delete the Deployment and the operator recreates it:
+
+```console
+$ kubectl delete deployment my-api-deployment
+deployment.apps "my-api-deployment" deleted
+$ kubectl get deployment            # already back, recreated by the operator
+NAME                READY   UP-TO-DATE   AVAILABLE   AGE
+my-api-deployment   2/2     2            2           1s
+```
+
+**Validation** — invalid specs are rejected by the API server *before* the controller runs:
+
+```console
+$ kubectl apply -f webapp-bad.yaml     # cpuThresholdPercent: 150
+The WebApp "bad" is invalid: spec.autoscaling.cpuThresholdPercent: Invalid value: 150:
+spec.autoscaling.cpuThresholdPercent in body should be less than or equal to 100
+```
 
 ## Development
 
