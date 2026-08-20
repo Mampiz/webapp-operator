@@ -24,6 +24,21 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// AutoscalingSpec defines the autoscaling behaviour for the WebApp.
+// +kubebuilder:validation:XValidation:rule="self.maxReplicas >= self.minReplicas",message="maxReplicas must be greater than or equal to minReplicas"
+type AutoscalingSpec struct {
+	// MinReplicas is the minimum number of replicas the autoscaler will scale down to.
+	// +kubebuilder:validation:Minimum=1
+	MinReplicas int32 `json:"minReplicas"`
+	// MaxReplicas is the maximum number of replicas the autoscaler will scale up to.
+	// +kubebuilder:validation:Minimum=1
+	MaxReplicas int32 `json:"maxReplicas"`
+	// CPUThresholdPercent is the target average CPU utilization (1-100) that triggers scaling.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	CPUThresholdPercent int32 `json:"cpuThresholdPercent"`
+}
+
 // WebAppSpec defines the desired state of WebApp
 type WebAppSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -32,12 +47,12 @@ type WebAppSpec struct {
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
 	// Image is the container image to be used for the web application. It should be a valid image reference, e.g., "nginx:latest".
-	Image string `json:"image"` 
+	Image string `json:"image"`
 	// Replicas is the desired number of replicas for the web application. It should be a non-negative integer.
 	Replicas int32 `json:"replicas"`
 	// Port is the port on which the web application will listen. It should be a valid port number (1-65535).
 	Port int32 `json:"port"`
-	
+	Autoscaling *AutoscalingSpec `json:"autoscaling,omitempty"`
 }
 
 // WebAppStatus defines the observed state of WebApp.

@@ -39,6 +39,37 @@ spec:
           spec:
             description: spec defines the desired state of WebApp
             properties:
+              autoscaling:
+                description: AutoscalingSpec defines the autoscaling behaviour for
+                  the WebApp.
+                properties:
+                  cpuThresholdPercent:
+                    description: CPUThresholdPercent is the target average CPU utilization
+                      (1-100) that triggers scaling.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  maxReplicas:
+                    description: MaxReplicas is the maximum number of replicas the
+                      autoscaler will scale up to.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  minReplicas:
+                    description: MinReplicas is the minimum number of replicas the
+                      autoscaler will scale down to.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - cpuThresholdPercent
+                - maxReplicas
+                - minReplicas
+                type: object
+                x-kubernetes-validations:
+                - message: maxReplicas must be greater than or equal to minReplicas
+                  rule: self.maxReplicas >= self.minReplicas
               image:
                 description: Image is the container image to be used for the web application.
                   It should be a valid image reference, e.g., "nginx:latest".
