@@ -46,13 +46,13 @@ The controller runs a **level-based reconcile loop**: on every change it compare
 
 ## Features
 
-- 🔁 **Idempotent reconciliation** via `CreateOrUpdate` — no duplicate resources, no drift.
-- 🛠️ **Self-healing** — child resources are owner-referenced; delete one and it comes back.
-- 📈 **Optional autoscaling** — an HPA is created only when the `autoscaling` block is present.
-- 🩺 **Status reporting** — an `Available` condition reflects real Deployment readiness (`kubectl get webapp` is meaningful).
-- 📣 **Kubernetes Events** — emitted on meaningful changes, visible in `kubectl describe`.
-- ✅ **Schema validation** — required fields, numeric ranges, and a cross-field rule (`maxReplicas >= minReplicas`) enforced by the API server before the controller ever runs.
-- 🧪 **Integration-tested** with [envtest](https://book.kubebuilder.io/reference/envtest.html) against a real API server.
+- **Idempotent reconciliation** via `CreateOrUpdate` — no duplicate resources, no drift.
+- **Self-healing** — child resources are owner-referenced; delete one and it comes back.
+- **Optional autoscaling** — an HPA is created only when the `autoscaling` block is present.
+- **Status reporting** — an `Available` condition reflects real Deployment readiness (`kubectl get webapp` is meaningful).
+- **Kubernetes Events** — emitted on meaningful changes, visible in `kubectl describe`.
+- **Schema validation** — required fields, numeric ranges, and a cross-field rule (`maxReplicas >= minReplicas`) enforced by the API server before the controller ever runs.
+- **Integration-tested** with [envtest](https://book.kubebuilder.io/reference/envtest.html) against a real API server.
 
 ## API reference — `WebApp` spec
 
