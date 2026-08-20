@@ -20,9 +20,11 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,8 +44,11 @@ type WebAppReconciler struct {
 // +kubebuilder:rbac:groups=platform.miportfolio.com,resources=webapps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.miportfolio.com,resources=webapps/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile ensures a Deployment exists that matches the WebApp spec.
+// Reconcile ensures a Deployment, a Service and (optionally) an HPA exist to
+// match the WebApp spec.
 func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -52,18 +57,22 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Labels shared by the Deployment selector, the pod template and the Service.
 	labels := map[string]string{"app": webapp.Name}
 
+	// --- Deployment ---
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      webapp.Name + "-deployment",
 			Namespace: webapp.Namespace,
 		},
 	}
-
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, deploy, func() error {
-		// Desired state of the Deployment, derived from the WebApp spec.
-		deploy.Spec.Replicas = ptr.To(webapp.Spec.Replicas)
+		// Only manage replicas ourselves when autoscaling is OFF; otherwise the
+		// HPA owns the replica count and we must not fight it on every reconcile.
+		if webapp.Spec.Autoscaling == nil {
+			deploy.Spec.Replicas = ptr.To(webapp.Spec.Replicas)
+		}
 		deploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		deploy.Spec.Template = corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Labels: labels},
@@ -79,14 +88,70 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				}},
 			},
 		}
-		// Make the WebApp the owner of the Deployment: cascade delete + watch.
 		return controllerutil.SetControllerReference(&webapp, deploy, r.Scheme)
 	})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
 	log.Info("reconciled deployment", "operation", op, "name", deploy.Name)
+
+	// --- Service ---
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webapp.Name + "-service",
+			Namespace: webapp.Namespace,
+		},
+	}
+	op, err = controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
+		service.Spec.Selector = labels
+		service.Spec.Type = corev1.ServiceTypeClusterIP
+		service.Spec.Ports = []corev1.ServicePort{{
+			Name:       "http",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       webapp.Spec.Port,
+			TargetPort: intstr.FromInt32(webapp.Spec.Port),
+		}}
+		return controllerutil.SetControllerReference(&webapp, service, r.Scheme)
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	log.Info("reconciled service", "operation", op, "name", service.Name)
+
+	// --- HorizontalPodAutoscaler ---
+	if webapp.Spec.Autoscaling != nil {
+		hpa := &autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      webapp.Name + "-autoscaler",
+				Namespace: webapp.Namespace,
+			},
+		}
+		op, err = controllerutil.CreateOrUpdate(ctx, r.Client, hpa, func() error {
+			hpa.Spec.ScaleTargetRef = autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       deploy.Name,
+			}
+			hpa.Spec.MinReplicas = ptr.To(webapp.Spec.Autoscaling.MinReplicas)
+			hpa.Spec.MaxReplicas = webapp.Spec.Autoscaling.MaxReplicas
+			hpa.Spec.Metrics = []autoscalingv2.MetricSpec{{
+				Type: autoscalingv2.ResourceMetricSourceType,
+				Resource: &autoscalingv2.ResourceMetricSource{
+					Name: corev1.ResourceCPU,
+					Target: autoscalingv2.MetricTarget{
+						Type:               autoscalingv2.UtilizationMetricType,
+						AverageUtilization: ptr.To(webapp.Spec.Autoscaling.CPUThresholdPercent),
+					},
+				},
+			}}
+			return controllerutil.SetControllerReference(&webapp, hpa, r.Scheme)
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		log.Info("reconciled hpa", "operation", op, "name", hpa.Name)
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -95,6 +160,8 @@ func (r *WebAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.WebApp{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
 		Named("webapp").
 		Complete(r)
 }
