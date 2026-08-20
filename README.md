@@ -1,135 +1,139 @@
-# webapp-operator
-// TODO(user): Add simple overview of use/purpose
+# WebApp Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes [Operator](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/) written in Go that turns a single high-level `WebApp` resource into a fully managed application stack — a **Deployment**, a **Service**, and an optional **HorizontalPodAutoscaler** — kept continuously in sync with the desired state.
 
-## Getting Started
+Built with [Kubebuilder](https://book.kubebuilder.io/) and [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
+
+---
+
+## Why?
+
+Deploying even a simple web app on Kubernetes usually means writing and maintaining three or more separate manifests (Deployment, Service, HPA) and keeping them consistent by hand. This operator collapses all of that into one declarative resource:
+
+```yaml
+apiVersion: platform.miportfolio.com/v1
+kind: WebApp
+metadata:
+  name: my-api
+spec:
+  image: my-api:v1.2.3
+  replicas: 2
+  port: 8080
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 10
+    cpuThresholdPercent: 70
+```
+
+Apply that, and the operator creates and maintains everything else for you.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    user([User]) -->|kubectl apply| webapp[WebApp CR]
+    webapp -->|watch| ctrl{{WebApp Controller}}
+    ctrl -->|reconcile| dep[Deployment]
+    ctrl -->|reconcile| svc[Service]
+    ctrl -->|reconcile if autoscaling set| hpa[HorizontalPodAutoscaler]
+    ctrl -->|status conditions + events| webapp
+    dep -.owned by.-> webapp
+    svc -.owned by.-> webapp
+    hpa -.owned by.-> webapp
+```
+
+The controller runs a **level-based reconcile loop**: on every change it compares the desired state (the `WebApp` spec) with the actual cluster state and corrects the difference. It is **idempotent** (running it once or a thousand times yields the same result) and **self-healing** (delete a managed Deployment and it is recreated).
+
+## Features
+
+- 🔁 **Idempotent reconciliation** via `CreateOrUpdate` — no duplicate resources, no drift.
+- 🛠️ **Self-healing** — child resources are owner-referenced; delete one and it comes back.
+- 📈 **Optional autoscaling** — an HPA is created only when the `autoscaling` block is present.
+- 🩺 **Status reporting** — an `Available` condition reflects real Deployment readiness (`kubectl get webapp` is meaningful).
+- 📣 **Kubernetes Events** — emitted on meaningful changes, visible in `kubectl describe`.
+- ✅ **Schema validation** — required fields, numeric ranges, and a cross-field rule (`maxReplicas >= minReplicas`) enforced by the API server before the controller ever runs.
+- 🧪 **Integration-tested** with [envtest](https://book.kubebuilder.io/reference/envtest.html) against a real API server.
+
+## API reference — `WebApp` spec
+
+| Field | Type | Required | Description |
+|---|---|:--:|---|
+| `image` | string | ✅ | Container image to run. |
+| `replicas` | int32 | ✅ | Desired replicas (ignored when `autoscaling` is set — the HPA owns the count). |
+| `port` | int32 | ✅ | Container port the app listens on. |
+| `autoscaling` | object | ➖ | Optional autoscaling configuration. |
+| `autoscaling.minReplicas` | int32 | ✅¹ | Minimum replicas (≥ 1). |
+| `autoscaling.maxReplicas` | int32 | ✅¹ | Maximum replicas (≥ 1, and ≥ `minReplicas`). |
+| `autoscaling.cpuThresholdPercent` | int32 | ✅¹ | Target average CPU utilization, 1–100. |
+
+¹ Required only when the `autoscaling` block is present.
+
+The `status` reports an `Available` condition (`True`/`False`) with a human-readable message such as `3/3 replicas ready`.
+
+## Installation
 
 ### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+- A Kubernetes cluster (a local [kind](https://kind.sigs.k8s.io/) cluster works great).
+- `kubectl` configured to talk to it.
 
-```sh
-make docker-build docker-push IMG=<some-registry>/webapp-operator:tag
+### Option A — single manifest
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/Mampiz/webapp-operator/main/dist/install.yaml
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Option B — Helm
 
-**Install the CRDs into the cluster:**
-
-```sh
-make install
+```bash
+helm install webapp-operator ./dist/chart
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+Both install the CRD, RBAC, and the operator Deployment.
 
-```sh
-make deploy IMG=<some-registry>/webapp-operator:tag
+## Quick start / demo
+
+```bash
+# 1. Spin up a local cluster and install the operator
+kind create cluster --name webapp-dev
+kubectl apply -f dist/install.yaml
+
+# 2. Create a WebApp
+kubectl apply -f - <<'EOF'
+apiVersion: platform.miportfolio.com/v1
+kind: WebApp
+metadata:
+  name: my-api
+spec:
+  image: nginx:latest
+  replicas: 2
+  port: 80
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 10
+    cpuThresholdPercent: 70
+EOF
+
+# 3. Watch the operator create everything
+kubectl get deployment,service,hpa
+kubectl describe webapp my-api   # see Conditions + Events
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+Try the self-healing: `kubectl delete deployment my-api-deployment` and watch it reappear.
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+The API server rejects invalid specs before the controller runs — e.g. `cpuThresholdPercent: 150` or `maxReplicas < minReplicas`.
 
-```sh
-kubectl apply -k config/samples/
+## Development
+
+```bash
+make manifests generate   # regenerate CRD + deepcopy code after editing api/
+make run                  # run the operator locally against the current cluster
+make test                 # run the envtest integration suite
+make build-installer IMG=<your-image>   # regenerate dist/install.yaml
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/webapp-operator:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/webapp-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+The core reconcile logic lives in [`internal/controller/webapp_controller.go`](internal/controller/webapp_controller.go); the API types in [`api/v1/webapp_types.go`](api/v1/webapp_types.go).
 
 ## License
 
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+Apache 2.0. See [LICENSE](LICENSE).
