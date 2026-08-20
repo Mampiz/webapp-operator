@@ -179,9 +179,12 @@ func main() {
 	}
 
 	if err := (&controller.WebAppReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("webapp-controller"),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		// record.EventRecorder (via GetEventRecorderFor) is the standard controller-runtime
+		// pattern for operators; the newer events API adds no value for this project.
+		Recorder: mgr.GetEventRecorderFor("webapp-controller"), //nolint:staticcheck // SA1019: intentional, see above
+
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "webapp")
 		os.Exit(1)

@@ -34,6 +34,9 @@ import (
 	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
 )
 
+// testNamespace is the namespace the test resources live in.
+const testNamespace = "default"
+
 // newReconciler builds a WebAppReconciler wired for tests. It uses the envtest
 // client and a fake event recorder (so r.Recorder.Event does not panic).
 func newReconciler() *WebAppReconciler {
@@ -49,12 +52,12 @@ var _ = Describe("WebApp Controller", func() {
 
 	Context("When reconciling a WebApp without autoscaling", func() {
 		const name = "test-webapp"
-		key := types.NamespacedName{Name: name, Namespace: "default"}
+		key := types.NamespacedName{Name: name, Namespace: testNamespace}
 
 		BeforeEach(func() {
 			By("creating a valid WebApp resource")
 			webapp := &platformv1.WebApp{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
 				Spec: platformv1.WebAppSpec{
 					Image:    "nginx:latest",
 					Replicas: 3,
@@ -77,7 +80,7 @@ var _ = Describe("WebApp Controller", func() {
 
 			deployment := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name: name + "-deployment", Namespace: "default",
+				Name: name + "-deployment", Namespace: testNamespace,
 			}, deployment)).To(Succeed())
 
 			Expect(*deployment.Spec.Replicas).To(Equal(int32(3)))
@@ -92,7 +95,7 @@ var _ = Describe("WebApp Controller", func() {
 
 			service := &corev1.Service{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name: name + "-service", Namespace: "default",
+				Name: name + "-service", Namespace: testNamespace,
 			}, service)).To(Succeed())
 
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(8080)))
@@ -105,7 +108,7 @@ var _ = Describe("WebApp Controller", func() {
 
 			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
 			err = k8sClient.Get(ctx, types.NamespacedName{
-				Name: name + "-autoscaler", Namespace: "default",
+				Name: name + "-autoscaler", Namespace: testNamespace,
 			}, hpa)
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
@@ -113,12 +116,12 @@ var _ = Describe("WebApp Controller", func() {
 
 	Context("When reconciling a WebApp with autoscaling", func() {
 		const name = "test-webapp-hpa"
-		key := types.NamespacedName{Name: name, Namespace: "default"}
+		key := types.NamespacedName{Name: name, Namespace: testNamespace}
 
 		BeforeEach(func() {
 			By("creating a WebApp with an autoscaling block")
 			webapp := &platformv1.WebApp{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
 				Spec: platformv1.WebAppSpec{
 					Image:    "nginx:latest",
 					Replicas: 2,
@@ -145,7 +148,7 @@ var _ = Describe("WebApp Controller", func() {
 
 			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name: name + "-autoscaler", Namespace: "default",
+				Name: name + "-autoscaler", Namespace: testNamespace,
 			}, hpa)).To(Succeed())
 
 			Expect(*hpa.Spec.MinReplicas).To(Equal(int32(2)))
