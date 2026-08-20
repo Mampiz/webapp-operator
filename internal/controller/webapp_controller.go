@@ -19,9 +19,14 @@ package controller
 import (
 	"context"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
@@ -36,21 +41,52 @@ type WebAppReconciler struct {
 // +kubebuilder:rbac:groups=platform.miportfolio.com,resources=webapps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=platform.miportfolio.com,resources=webapps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.miportfolio.com,resources=webapps/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the WebApp object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.24.1/pkg/reconcile
+// Reconcile ensures a Deployment exists that matches the WebApp spec.
 func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var webapp platformv1.WebApp
+	if err := r.Get(ctx, req.NamespacedName, &webapp); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
+	labels := map[string]string{"app": webapp.Name}
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webapp.Name + "-deployment",
+			Namespace: webapp.Namespace,
+		},
+	}
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, deploy, func() error {
+		// Desired state of the Deployment, derived from the WebApp spec.
+		deploy.Spec.Replicas = ptr.To(webapp.Spec.Replicas)
+		deploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+		deploy.Spec.Template = corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Labels: labels},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "webapp",
+					Image: webapp.Spec.Image,
+					Ports: []corev1.ContainerPort{{
+						Name:          "http",
+						Protocol:      corev1.ProtocolTCP,
+						ContainerPort: webapp.Spec.Port,
+					}},
+				}},
+			},
+		}
+		// Make the WebApp the owner of the Deployment: cascade delete + watch.
+		return controllerutil.SetControllerReference(&webapp, deploy, r.Scheme)
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("reconciled deployment", "operation", op, "name", deploy.Name)
 	return ctrl.Result{}, nil
 }
 
@@ -58,6 +94,7 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 func (r *WebAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.WebApp{}).
+		Owns(&appsv1.Deployment{}).
 		Named("webapp").
 		Complete(r)
 }

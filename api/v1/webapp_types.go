@@ -51,7 +51,7 @@ type WebAppSpec struct {
 	// Replicas is the desired number of replicas for the web application. It should be a non-negative integer.
 	Replicas int32 `json:"replicas"`
 	// Port is the port on which the web application will listen. It should be a valid port number (1-65535).
-	Port int32 `json:"port"`
+	Port        int32            `json:"port"`
 	Autoscaling *AutoscalingSpec `json:"autoscaling,omitempty"`
 }
 
