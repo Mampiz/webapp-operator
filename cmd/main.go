@@ -37,6 +37,7 @@ import (
 
 	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
 	"github.com/Mampiz/webapp-operator/internal/controller"
+	webhookv1 "github.com/Mampiz/webapp-operator/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -188,6 +189,13 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "webapp")
 		os.Exit(1)
+	}
+	// nolint:goconst
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err := webhookv1.SetupWebAppWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "WebApp")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 
