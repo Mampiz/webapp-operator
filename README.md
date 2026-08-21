@@ -162,6 +162,23 @@ The WebApp "bad" is invalid: spec.autoscaling.cpuThresholdPercent: Invalid value
 spec.autoscaling.cpuThresholdPercent in body should be less than or equal to 100
 ```
 
+## Observability
+
+The operator exposes Prometheus metrics on the manager's `/metrics` endpoint, including custom domain metrics:
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `webapp_reconcile_total` | counter | `result` | Reconciles, by outcome (`success` / `error`) |
+| `webapp_child_operations_total` | counter | `resource`, `operation` | Create/update operations on managed Deployments, Services and HPAs |
+
+…plus the standard controller-runtime metrics (reconcile latency, work-queue depth, …).
+
+Scraping is wired through the `ServiceMonitor` in `config/prometheus/` (for the Prometheus Operator). A ready-made Grafana dashboard lives at [`config/grafana/webapp-operator-dashboard.json`](config/grafana/webapp-operator-dashboard.json) — import it and select your Prometheus data source.
+
+![Grafana dashboard](docs/grafana.png)
+
+<!-- Add docs/grafana.png: a screenshot of the imported dashboard once Prometheus + Grafana are scraping the operator (e.g. via the kube-prometheus-stack Helm chart). This is the one visual where a screenshot beats text. -->
+
 ## Development
 
 ```bash

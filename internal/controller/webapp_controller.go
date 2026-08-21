@@ -53,8 +53,16 @@ type WebAppReconciler struct {
 
 // Reconcile ensures a Deployment, a Service and (optionally) an HPA exist to
 // match the WebApp spec, and reports the result in the WebApp status.
-func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {
 	log := logf.FromContext(ctx)
+
+	defer func() {
+		if err != nil {
+			reconcileTotal.WithLabelValues("error").Inc()
+		} else {
+			reconcileTotal.WithLabelValues("success").Inc()
+		}
+	}()
 
 	var webapp platformv1.WebApp
 	if err := r.Get(ctx, req.NamespacedName, &webapp); err != nil {
@@ -100,6 +108,7 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	if op != controllerutil.OperationResultNone {
 		r.Recorder.Eventf(&webapp, corev1.EventTypeNormal, "DeploymentReconciled", "Deployment %s %s", deploy.Name, op)
+		childOperationsTotal.WithLabelValues("deployment", string(op)).Inc()
 	}
 	log.Info("reconciled deployment", "operation", op, "name", deploy.Name)
 
@@ -127,6 +136,7 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	if op != controllerutil.OperationResultNone {
 		r.Recorder.Eventf(&webapp, corev1.EventTypeNormal, "ServiceReconciled", "Service %s %s", service.Name, op)
+		childOperationsTotal.WithLabelValues("service", string(op)).Inc()
 	}
 	log.Info("reconciled service", "operation", op, "name", service.Name)
 
@@ -164,6 +174,7 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		if op != controllerutil.OperationResultNone {
 			r.Recorder.Eventf(&webapp, corev1.EventTypeNormal, "HPAReconciled", "HorizontalPodAutoscaler %s %s", hpa.Name, op)
+			childOperationsTotal.WithLabelValues("hpa", string(op)).Inc()
 		}
 		log.Info("reconciled hpa", "operation", op, "name", hpa.Name)
 	}
@@ -186,6 +197,7 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	meta.SetStatusCondition(&webapp.Status.Conditions, condition)
 
 	if err := r.Status().Update(ctx, &webapp); err != nil {
+		reconcileTotal.WithLabelValues("error").Inc()
 		return ctrl.Result{}, err
 	}
 
