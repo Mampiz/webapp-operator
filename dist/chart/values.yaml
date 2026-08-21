@@ -158,6 +158,13 @@ metrics:
   # Note: Metrics authn/authz needs ClusterRole access.
   secure: true
 
+## Admission webhooks (defaulting + validating).
+## Disabled by default: they require TLS certificates provisioned by cert-manager.
+## Set enable=true only when cert-manager is installed (certManager.enabled=true).
+##
+webhook:
+  enable: false
+
 ## Cert-manager integration for TLS certificates.
 ## Required for webhook certificates and metrics endpoint certificates.
 ##
