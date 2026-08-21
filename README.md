@@ -3,6 +3,7 @@
 [![Tests](https://github.com/Mampiz/webapp-operator/actions/workflows/test.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/test.yml)
 [![Lint](https://github.com/Mampiz/webapp-operator/actions/workflows/lint.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/lint.yml)
 [![Release image](https://github.com/Mampiz/webapp-operator/actions/workflows/release.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/release.yml)
+[![Security](https://github.com/Mampiz/webapp-operator/actions/workflows/security.yml/badge.svg)](https://github.com/Mampiz/webapp-operator/actions/workflows/security.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 
