@@ -178,8 +178,6 @@ Scraping is wired through the `ServiceMonitor` in `config/prometheus/` (for the 
 
 ![Grafana dashboard](docs/grafana.png)
 
-<!-- Add docs/grafana.png: a screenshot of the imported dashboard once Prometheus + Grafana are scraping the operator (e.g. via the kube-prometheus-stack Helm chart). This is the one visual where a screenshot beats text. -->
-
 ## Development
 
 ```bash

@@ -105,6 +105,27 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Child operations (cumulative totals)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "showHeader": true },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "Value": "count" } } }
+      ],
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sum by (resource, operation) (webapp_child_operations_total)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
