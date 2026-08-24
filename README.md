@@ -16,7 +16,7 @@ Built with [Kubebuilder](https://book.kubebuilder.io/) and [controller-runtime](
 📚 **[Documentation](docs/)** — [Getting started](docs/getting-started.md) ·
 [Showcase](docs/showcase.md) ·
 [Installation](docs/installation.md) · [API reference](docs/api-reference.md) ·
-[Admission webhooks](docs/webhooks.md) · [Observability](docs/observability.md) ·
+[API versioning](docs/api-versioning.md) · [Admission webhooks](docs/webhooks.md) · [Observability](docs/observability.md) ·
 [Troubleshooting](docs/troubleshooting.md) · [Design notes](docs/design.md) ·
 [Prior art](docs/prior-art.md) · [Scale](docs/scale.md)
 
@@ -288,13 +288,13 @@ levels](https://sdk.operatorframework.io/docs/overview/operator-capabilities/).
 | Level | Status | Notes |
 |---|:--:|---|
 | **1 — Basic Install** | ✅ | Installs the operand from a single resource: Deployment, Service, optional HPA and PDB, with schema + admission validation. |
-| **2 — Seamless Upgrades** | 🟡 | Operand upgrades work: changing `spec.image` triggers a rolling update the controller drives. Operator upgrades are versioned and released, but there is a single API version, so no conversion story has been exercised. |
+| **2 — Seamless Upgrades** | ✅ | Operand upgrades work: changing `spec.image` triggers a rolling update the controller drives. The API is served in two versions — `v1alpha1` is deprecated and converted to the `v1` storage version by a conversion webhook, with round-trip tests — so old manifests keep working across an operator upgrade. See [API versioning](docs/api-versioning.md). |
 | **3 — Full Lifecycle** | ➖ N/A | The operand is a **stateless** web application: there are no backups, restores or storage migrations to perform. Deletion is handled by owner references, and there is no external state that would need finalizers. Marked N/A rather than missing. |
 | **4 — Deep Insights** | ✅ | Metrics for both the operator (`webapp_reconcile_total`, `webapp_child_operations_total`) and the operand (`webapp_ready_replicas`, `webapp_info`), a Grafana dashboard, alerting rules, Kubernetes events, and `Available`/`Progressing`/`Degraded` conditions with `observedGeneration`. |
 | **5 — Auto Pilot** | 🟡 | Horizontal auto-scaling is delegated to an HPA the operator configures, and the reconcile self-heals drift. There is no automated tuning, anomaly detection or workload-driven remediation. |
 
-Roadmap for the partial levels: exercise a `v1alpha1 → v1` conversion webhook
-(level 2), and add request-rate-based scaling via custom metrics (level 5).
+Roadmap for the remaining partial level: request-rate-based scaling via custom
+metrics, and automated remediation beyond recreating drifted resources (level 5).
 
 ## Scale
 

@@ -20,6 +20,10 @@ resources:
 - metrics_service.yaml
 
 patches:
+- path: crd_single_version_patch.yaml
+  target:
+    kind: CustomResourceDefinition
+    name: webapps.platform.miportfolio.com
 - path: manager_metrics_patch.yaml
   target:
     kind: Deployment

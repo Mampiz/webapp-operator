@@ -35,6 +35,12 @@ resources:
 
 # Uncomment the patches line if you enable Metrics
 patches:
+# Two served versions with different shapes need a conversion webhook, and this
+# overlay is the one that deploys the webhook server.
+- path: crd_conversion_patch.yaml
+  target:
+    kind: CustomResourceDefinition
+    name: webapps.platform.miportfolio.com
 # [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
 # More info: https://book.kubebuilder.io/reference/metrics
 - path: manager_metrics_patch.yaml

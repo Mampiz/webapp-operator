@@ -19,10 +19,15 @@ jobs:
       # envtest version used in the unit suite.
       matrix:
         include:
+          # cert-manager is pinned per Kubernetes version: releases from v1.17
+          # onwards ship CRDs using `selectableFields`, which an API server older
+          # than 1.31 rejects with a strict decoding error.
           - kubernetes: "1.29"
             node_image: kindest/node:v1.29.14@sha256:8703bd94ee24e51b778d5556ae310c6c0fa67d761fae6379c8e0bb480e6fea29
+            cert_manager: v1.16.5
           - kubernetes: "1.36"
             node_image: kindest/node:v1.36.1
+            cert_manager: v1.20.2
     steps:
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -46,6 +51,7 @@ jobs:
       - name: Running Test e2e
         env:
           KIND_NODE_IMAGE: ${{ matrix.node_image }}
+          CERT_MANAGER_VERSION: ${{ matrix.cert_manager }}
         run: |
           go mod tidy
           make test-e2e

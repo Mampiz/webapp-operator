@@ -1,0 +1,18 @@
+# Routes version conversion through the operator's webhook server.
+#
+# Two served versions with different shapes cannot be converted by the API server
+# on its own: strategy "None" would hand the stored object back under the
+# requested apiVersion without touching its fields, silently dropping the ones
+# that moved. A webhook is therefore mandatory wherever v1alpha1 is served.
+- op: add
+  path: /spec/conversion
+  value:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          namespace: system
+          name: webhook-service
+          path: /convert
+      conversionReviewVersions:
+        - v1

@@ -3,4 +3,5 @@
 ## demonstrate the validating webhook rejecting it, so applying it must fail.
 resources:
 - platform_v1_webapp.yaml
+- platform_v1alpha1_webapp.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

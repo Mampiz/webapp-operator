@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
+	platformv1alpha1 "github.com/Mampiz/webapp-operator/api/v1alpha1"
 	"github.com/Mampiz/webapp-operator/internal/controller"
 	webhookv1 "github.com/Mampiz/webapp-operator/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
@@ -50,6 +51,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(platformv1.AddToScheme(scheme))
+	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

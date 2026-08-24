@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`v1alpha1` API version and a conversion webhook.** `v1` is now the storage
+  version; `v1alpha1` remains served (and marked deprecated) so existing
+  manifests keep working, with its flat `minReplicas`/`maxReplicas`/`cpuThreshold`
+  fields converted to and from the grouped `autoscaling` block. Conversion
+  completes partial or inconsistent old data rather than rejecting it, so stored
+  objects stay readable. `dist/install.yaml`, which ships without webhooks,
+  serves only `v1`.
 - `spec.resources` for the application container, and an automatic CPU request
   when autoscaling is enabled without one — CPU target utilization is a
   percentage of the request, so previously the HPA could never scale.

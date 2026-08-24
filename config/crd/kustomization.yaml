@@ -6,8 +6,8 @@ resources:
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
-# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
-# patches here are for enabling the conversion webhook for each CRD
+# The conversion webhook patch lives in config/default, not here: it only makes
+# sense in an overlay that actually deploys the webhook server.
 # +kubebuilder:scaffold:crdkustomizewebhookpatch
 
 # [WEBHOOK] To enable webhook, uncomment the following section

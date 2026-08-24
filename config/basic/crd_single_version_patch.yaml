@@ -1,0 +1,13 @@
+# This overlay installs without webhooks, and version conversion *is* a webhook.
+#
+# Serving v1alpha1 with conversion strategy "None" would return the stored v1
+# object under the v1alpha1 apiVersion without remapping the autoscaling fields,
+# so a client reading it would silently see no autoscaling configured. Refusing
+# to serve the old version is the honest failure mode: requests for it get a
+# clear error instead of wrong data.
+#
+# Index 1 is v1alpha1: controller-gen emits versions sorted by name, so v1
+# precedes v1alpha1.
+- op: replace
+  path: /spec/versions/1/served
+  value: false

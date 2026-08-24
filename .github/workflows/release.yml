@@ -92,6 +92,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # Published, not a draft: a draft release keeps its assets on an
+          # "untagged-..." URL, so the documented
+          # releases/download/<tag>/install.yaml link 404s and the primary
+          # install path is broken for everyone but the repository owner.
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
           files: |
             dist/install.yaml
             dist/install-with-webhooks.yaml

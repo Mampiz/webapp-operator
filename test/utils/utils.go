@@ -28,12 +28,29 @@ import (
 )
 
 const (
-	certmanagerVersion = "v1.20.2"
-	certmanagerURLTmpl = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
+	// defaultCertManagerVersion is used when CERT_MANAGER_VERSION is not set.
+	//
+	// cert-manager releases track a moving window of supported Kubernetes
+	// versions: recent ones ship CRDs using fields (selectableFields) that older
+	// API servers reject outright, so no single version spans the range this
+	// operator supports. CI therefore pins a compatible release per Kubernetes
+	// version in the e2e matrix.
+	defaultCertManagerVersion = "v1.20.2"
+	certmanagerURLTmpl        = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
 
 	defaultKindBinary  = "kind"
 	defaultKindCluster = "kind"
 )
+
+// certManagerVersion returns the cert-manager release to install, overridable
+// with CERT_MANAGER_VERSION so the e2e matrix can pick one that the Kubernetes
+// version under test actually accepts.
+func certManagerVersion() string {
+	if v := os.Getenv("CERT_MANAGER_VERSION"); v != "" {
+		return v
+	}
+	return defaultCertManagerVersion
+}
 
 func warnError(err error) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
@@ -61,7 +78,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
+	url := fmt.Sprintf(certmanagerURLTmpl, certManagerVersion())
 	cmd := exec.Command("kubectl", "delete", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
@@ -83,7 +100,7 @@ func UninstallCertManager() {
 
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
+	url := fmt.Sprintf(certmanagerURLTmpl, certManagerVersion())
 	cmd := exec.Command("kubectl", "apply", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		return err

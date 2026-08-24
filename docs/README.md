@@ -17,6 +17,7 @@ Real CPU load moving the replica count:
 | [Getting started](getting-started.md) | Install the operator on a local cluster and deploy your first `WebApp`. |
 | [Showcase](showcase.md) | What it does that plain manifests cannot: drift correction, self-healing, admission control, honest status — with real transcripts. |
 | [Installation](installation.md) | Production install: manifest or Helm, webhook setup with cert-manager, upgrades, uninstall. |
+| [API versioning](api-versioning.md) | Two served versions, the conversion webhook, and why the old one stays. |
 | [API reference](api-reference.md) | Every field of `spec` and `status`, with validation rules and defaults. |
 | [Admission webhooks](webhooks.md) | The defaulting and validation policy, and how to run it. |
 | [Observability](observability.md) | Metrics, the Grafana dashboard, alerting rules and events. |
