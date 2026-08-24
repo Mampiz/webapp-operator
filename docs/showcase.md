@@ -177,48 +177,46 @@ owner references.
 ## Bonus — autoscaling under real CPU load
 
 ```bash
-SHOWCASE_AUTOSCALING=1 make showcase
+SHOWCASE_AUTOSCALING=1 make showcase   # as part of the showcase
+make record-autoscaling                # or on its own, recorded
 ```
 
-The scenario waits for the metrics pipeline to report utilization, burns CPU
-inside the running pods, and follows the HPA. Real run, `minReplicas: 2`,
-`maxReplicas: 8`, `cpuThresholdPercent: 50`:
+![Autoscaling under load](assets/autoscaling.gif)
+
+The `WebApp` sets **no resources at all** — only an autoscaling block. The CPU
+request it needs is supplied for it:
 
 ```console
-$ kubectl describe hpa load-api-autoscaler
+$ kubectl get deployment shop-api-deployment \
+    -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}'
+100m
+```
+
+Then the pods are driven with genuine CPU load:
+
+```text
+  cpu=1%/50%         replicas=2
+  cpu=1136%/50%      replicas=2
+Utilization reached 1136% of the request; scaled to 4 replicas.
+```
+
+```console
+$ kubectl describe hpa shop-api-autoscaler
 Events:
-  Type     Reason                    Age   Message
-  ----     ------                    ----  -------
-  Normal   SuccessfulRescale         11m   New size: 2; reason: Current number of replicas below Spec.MinReplicas
-  Warning  FailedGetResourceMetric   11m   failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
-  Normal   SuccessfulRescale         10m   New size: 4; reason: cpu resource utilization (percentage of request) above target
-  Normal   SuccessfulRescale         10m   New size: 8; reason: cpu resource utilization (percentage of request) above target
+  Type    Reason             Age   Message
+  ----    ------             ----  -------
+  Normal  SuccessfulRescale  40s   New size: 2; reason: Current number of replicas below Spec.MinReplicas
+  Normal  SuccessfulRescale  7s    New size: 4; reason: cpu resource utilization (percentage of request) above target
 ```
 
-```console
-$ kubectl get hpa,webapp
-horizontalpodautoscaler.autoscaling/load-api-autoscaler   Deployment/load-api-deployment   cpu: 498%/50%   2   8   8   11m
+Read the reason the autoscaler gives for its decision: **"percentage of
+request"**. That request is the one nobody typed. Without it the ratio has no
+denominator, the HPA reports `<unknown>`, and this scale-up never happens — which
+is why the value is applied by the reconciler and not only by the optional
+admission webhook.
 
-NAME       IMAGE                                     READY   AVAILABLE   AGE
-load-api   nginxinc/nginx-unprivileged:1.27-alpine   8       True        11m
-```
-
-Utilization reached 498% of the request and the Deployment went **2 → 4 → 8**,
-stopping at `maxReplicas`. The `WebApp` status followed to `READY 8`.
-
-Two things are worth noticing in that event log. The early
-`FailedGetResourceMetric` is the metrics pipeline warming up while the pods are
-still unready — transient, and precisely why the alerting rules wait ten to
-fifteen minutes before firing. And "percentage of request" in the scaling reason
-is the whole point of scenario 1: the request the defaulting webhook injected is
-the denominator. Without it this run would have sat at `<unknown>` and never
-scaled at all.
-
-The operator itself never wrote the replica count during any of this — with
-autoscaling enabled, that field belongs to the HPA.
-
-This scenario is separated from the rest because it is bound by the HPA's own
-sync interval and takes minutes rather than seconds.
+The operator itself never wrote the replica count during any of this. With
+autoscaling enabled that field belongs to the HPA: one writer per field.
 
 ---
 

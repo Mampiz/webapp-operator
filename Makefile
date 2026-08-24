@@ -198,12 +198,16 @@ record-demo: ## Record the terminal demo and render docs/assets/demo.gif.
 record-showcase: ## Record the capability showcase and render docs/assets/showcase.gif.
 	@TARGET=showcase SKIP_PREPARE=1 ./hack/record-demo.sh
 
+.PHONY: record-autoscaling
+record-autoscaling: ## Record autoscaling under load and render docs/assets/autoscaling.gif.
+	@TARGET=autoscaling SKIP_PREPARE=1 ./hack/record-demo.sh
+
 .PHONY: screenshots
 screenshots: ## Capture docs/assets/grafana.png from a live Grafana instance.
 	@./hack/screenshot-grafana.sh
 
 .PHONY: docs-media
-docs-media: record-demo record-showcase screenshots ## Regenerate every generated asset under docs/assets.
+docs-media: record-demo record-showcase record-autoscaling screenshots ## Regenerate every generated asset under docs/assets.
 
 .PHONY: demo
 demo: ## Run the scripted end-to-end demo on a local kind cluster (see hack/demo.sh).

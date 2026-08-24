@@ -6,6 +6,10 @@ HorizontalPodAutoscaler and a PodDisruptionBudget.
 
 ![The operator in action](assets/demo.gif)
 
+Real CPU load moving the replica count:
+
+![Autoscaling under load](assets/autoscaling.gif)
+
 ## Contents
 
 | Document | What it covers |

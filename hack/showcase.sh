@@ -133,7 +133,11 @@ if [[ "${SHOWCASE_AUTOSCALING:-0}" == "1" ]]; then
   run kubectl get hpa "${APP}-autoscaler" --no-headers
   note "Burning CPU inside every running pod ..."
   for pod in $(kubectl get pods -l "app=$APP" -o name); do
-    kubectl exec "$pod" -- sh -c 'for i in 1 2 3 4; do (while :; do :; done) & done' >/dev/null 2>&1 || true
+    # The background loops keep the exec stream open, so redirect their output and
+  # cap the call: otherwise kubectl waits on a stream that never closes.
+  timeout 10 kubectl exec "$pod" -- \
+    sh -c 'for i in 1 2 3 4; do (while :; do :; done) >/dev/null 2>&1 & done' \
+    >/dev/null 2>&1 || true
   done
   for _ in $(seq 1 18); do
     sleep 10

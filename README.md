@@ -270,6 +270,16 @@ The WebApp "bad" is invalid: spec.autoscaling.cpuThresholdPercent: Invalid value
 spec.autoscaling.cpuThresholdPercent in body should be less than or equal to 100
 ```
 
+### Autoscaling, end to end
+
+![Autoscaling under load](docs/assets/autoscaling.gif)
+
+A `WebApp` with an `autoscaling` block and no resources set: the CPU request the
+HPA needs is supplied by the operator, real load pushes utilization to 1136% of
+it, and the autoscaler scales out — its own event citing *"cpu resource
+utilization (percentage of request) above target"*. Details in the
+[showcase](docs/showcase.md#bonus-autoscaling-under-real-cpu-load).
+
 ## Capability levels
 
 Self-assessment against the [Operator Framework capability
@@ -291,14 +301,15 @@ Roadmap for the partial levels: exercise a `v1alpha1 → v1` conversion webhook
 Measured on a single-node kind cluster, not estimated
 ([methodology](docs/scale.md)):
 
-| WebApps | Reconcile p50 | p95 | Peak queue depth | Manager RSS |
-|--:|--:|--:|--:|--:|
-| 100 | 25 ms | 50 ms | 1 | 34 MB |
-| 250 | 25 ms | 50 ms | 1 | 41 MB |
+| WebApps | Reconcile p50 | p95 | Peak queue depth | Manager CPU | Manager RSS |
+|--:|--:|--:|--:|--:|--:|
+| 100 | 25 ms | 50 ms | 2 | 2.6 s | 53 MB |
+| 250 | 25 ms | 50 ms | 1 | 5.8 s | 55 MB |
 
 Per-object reconcile cost is flat — the work per reconciliation does not depend
-on how many objects exist — and memory grows linearly with the watched set at
-roughly 45 KB per WebApp. Reproduce with `make scale-test`.
+on how many objects exist — and the queue keeps up with a single worker. CPU
+grows with the population at roughly 25 ms per WebApp. Reproduce with
+`make scale-test`.
 
 ## Observability
 

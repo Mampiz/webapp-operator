@@ -18,8 +18,10 @@ METRICS_PORT="${METRICS_PORT:-8080}"
 SIZES=("$@")
 [[ ${#SIZES[@]} -eq 0 ]] && SIZES=(100)
 
-if pgrep -f "exe/main --metrics-bind-address=:${METRICS_PORT}" >/dev/null 2>&1; then
-  echo "error: a manager is already running on :${METRICS_PORT}" >&2
+# Check the port rather than a process name: kind runs the in-cluster manager on
+# this host, so matching on "manager" would hit the operator's own pods.
+if ss -ltn "sport = :${METRICS_PORT}" 2>/dev/null | grep -q LISTEN; then
+  echo "error: a manager is already running on :${METRICS_PORT}; free it first (a previous run may have left one)" >&2
   exit 1
 fi
 
@@ -30,8 +32,16 @@ WEBHOOK_BACKUP="$(mktemp)"
 cleanup() {
   [[ -n "${OPERATOR_PID:-}" ]] && kill "$OPERATOR_PID" >/dev/null 2>&1 || true
   kubectl delete namespace "$NS" --wait=false >/dev/null 2>&1 || true
-  if [[ -s "$WEBHOOK_BACKUP" ]]; then
+  # Restoring matters: without these configurations the operator silently stops
+  # enforcing its admission policy. Verify rather than hope, and say so if it
+  # could not be done.
+  if [[ -s "$WEBHOOK_BACKUP" ]] && grep -q 'kind: .*WebhookConfiguration' "$WEBHOOK_BACKUP"; then
     kubectl apply -f "$WEBHOOK_BACKUP" >/dev/null 2>&1 || true
+    if ! kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration \
+         --no-headers 2>/dev/null | grep -q .; then
+      echo "WARNING: the admission webhooks could not be restored." >&2
+      echo "         Reinstate them with:  make deploy IMG=<image>" >&2
+    fi
   fi
   rm -f "$WEBHOOK_BACKUP"
   if [[ -n "${MANAGER_REPLICAS:-}" && "$MANAGER_REPLICAS" != "0" ]]; then
@@ -75,7 +85,12 @@ kubectl create namespace "$NS" >/dev/null 2>&1 || true
 kubectl wait --for=jsonpath='{.status.phase}'=Active "namespace/$NS" --timeout=60s >/dev/null
 
 echo "==> starting the manager"
-ENABLE_WEBHOOKS=false go run ./cmd/main.go \
+# Built and run directly rather than through `go run`: `go run` spawns the
+# compiled binary as a child, so killing it on cleanup leaves that child holding
+# the metrics port. A stale one then keeps answering scrapes, and the numbers
+# describe a previous run instead of this one.
+go build -o bin/manager ./cmd/main.go
+ENABLE_WEBHOOKS=false ./bin/manager \
   --metrics-bind-address=":${METRICS_PORT}" --metrics-secure=false \
   --health-probe-bind-address=:8082 >/tmp/scale-operator.log 2>&1 &
 OPERATOR_PID=$!

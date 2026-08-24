@@ -14,8 +14,9 @@ AGG_VERSION="${AGG_VERSION:-v1.9.0}"
 CLUSTER="${CLUSTER:-webapp-demo}"
 IMG="${IMG:-controller:demo}"
 OUT_DIR="docs/assets"
-# TARGET=demo      -> the getting-started walkthrough (hack/demo.sh)
-# TARGET=showcase   -> the capability showcase        (hack/showcase.sh)
+# TARGET=demo        -> the getting-started walkthrough (hack/demo.sh)
+# TARGET=showcase    -> the capability showcase        (hack/showcase.sh)
+# TARGET=autoscaling -> autoscaling under load         (hack/demo-autoscaling.sh)
 TARGET="${TARGET:-demo}"
 CAST="${OUT_DIR}/${TARGET}.cast"
 GIF="${OUT_DIR}/${TARGET}.gif"
@@ -48,11 +49,11 @@ fi
 kubectl delete -f config/samples/platform_v1_webapp.yaml --ignore-not-found >/dev/null 2>&1 || true
 
 echo "==> recording"
-if [[ "$TARGET" == "showcase" ]]; then
-  RECORD_COMMAND="./hack/showcase.sh"
-else
-  RECORD_COMMAND="./hack/demo.sh"
-fi
+case "$TARGET" in
+  showcase)    RECORD_COMMAND="./hack/showcase.sh" ;;
+  autoscaling) RECORD_COMMAND="./hack/demo-autoscaling.sh" ;;
+  *)           RECORD_COMMAND="./hack/demo.sh" ;;
+esac
 
 DEMO_SKIP_SETUP=1 CLUSTER="$CLUSTER" IMG="$IMG" PAUSE="${PAUSE:-1}" \
   ./bin/asciinema record "$CAST" \

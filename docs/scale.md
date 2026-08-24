@@ -7,30 +7,29 @@ from an actual run, not estimates — reproduce them with `make scale-test`.
 
 | WebApps | Reconcile p50 | Reconcile p95 | Peak queue depth | Manager CPU (cumulative) | Manager RSS |
 |--:|--:|--:|--:|--:|--:|
-| 100 | 25 ms | 50 ms | 1 | 3.7 s | 34 MB |
-| 250 | 25 ms | 50 ms | 1 | 6.8 s | 41 MB |
+| 100 | 25 ms | 50 ms | 2 | 2.6 s | 53 MB |
+| 250 | 25 ms | 50 ms | 1 | 5.8 s | 55 MB |
 
 **Reconcile latency does not move between 100 and 250 WebApps.** Each
 reconciliation is a fixed amount of work — read one object, compare four
-children — so per-object cost is independent of how many objects exist. The
-p50/p95 figures come from the histogram buckets, so 25 ms and 50 ms are bucket
-boundaries rather than exact values; the useful reading is that both stayed in
-the same bucket as the population grew 2.5×.
+children — so the per-object cost does not depend on how many objects exist. The
+quantiles come from histogram buckets, so 25 ms and 50 ms are bucket boundaries
+rather than exact values; the useful reading is that both stayed in the same
+bucket while the population grew 2.5×.
 
-**The queue never backed up.** A peak depth of 1 means the controller drained
-work as fast as it arrived, with a single worker. Sustained depth is what the
-`WebAppOperatorWorkQueueBacklog` alert watches for; nothing in this range comes
-close.
+**The queue never backed up.** A peak depth of 2 at 100 objects and 1 at 250
+means the controller drained work as fast as it arrived, with a single worker.
+Sustained depth is what the `WebAppOperatorWorkQueueBacklog` alert watches for;
+nothing in this range approaches it.
 
-**Memory grew by 7 MB for 150 additional WebApps**, roughly 45 KB each. That is
-the informer cache holding the objects and their children, and it is linear —
-the cost to expect is the size of the objects being watched, not a per-object
-overhead in the controller.
+**CPU scales with the population, as it should**: 2.6 s of cumulative CPU to
+bring the first 100 to steady state, 5.8 s by 250 — roughly 25 ms of CPU per
+WebApp, spread over the reconciles each object needs before it settles.
 
-**CPU is the figure that scales with the population**, as it should: 3.7 s of
-cumulative CPU to reconcile the first 100, 6.8 s by 250. Roughly 30 ms of CPU
-per WebApp brought to steady state, spread over the reconciles each object needs
-before it settles.
+**Memory stayed essentially flat**, 53 MB to 55 MB. Resident memory in a Go
+process is a coarse signal — the runtime returns pages to the OS on its own
+schedule — so the honest conclusion is only that 150 additional WebApps did not
+move it measurably at this scale, not that the informer cache is free.
 
 ## What was not measured
 
@@ -78,6 +77,14 @@ reported "100 of the applies failed", so the latency figures it printed were
 measuring an idle controller. The script now counts failed applies and says so,
 because a benchmark that silently measures nothing is worse than no benchmark.
 
+A second run had to be discarded as well. The manager was being started with
+`go run`, which compiles the binary and runs it as a *child* process — so
+stopping `go run` on cleanup left that child alive, still holding the metrics
+port. The next run's scrapes went to the stale process, and the figures
+described a previous experiment. The script now builds the binary and runs it
+directly, and refuses to start if anything is already listening on the metrics
+port.
+
 ## Environment
 
 | | |
@@ -89,4 +96,4 @@ because a benchmark that silently measures nothing is worse than no benchmark.
 
 Absolute numbers on a laptop are not a capacity plan for a production cluster.
 What travels is the *shape*: flat per-object latency, a queue that keeps up, and
-memory linear in the number of watched objects.
+CPU that grows with the number of objects while per-object cost stays constant.

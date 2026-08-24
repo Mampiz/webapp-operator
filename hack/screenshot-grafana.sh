@@ -20,8 +20,22 @@ PLAYWRIGHT_NPM_VERSION="${PLAYWRIGHT_NPM_VERSION:-1.49.0}"
 MANAGER_NS="webapp-operator-system"
 MANAGER_DEPLOY="webapp-operator-controller-manager"
 
+WEBHOOK_BACKUP="$(mktemp)"
+
 cleanup() {
   docker rm -f webapp-docs-prometheus webapp-docs-grafana >/dev/null 2>&1 || true
+  # Restoring matters: without these configurations the operator silently stops
+  # enforcing its admission policy. Verify rather than hope, and say so if it
+  # could not be done.
+  if [[ -s "$WEBHOOK_BACKUP" ]] && grep -q 'kind: .*WebhookConfiguration' "$WEBHOOK_BACKUP"; then
+    kubectl apply -f "$WEBHOOK_BACKUP" >/dev/null 2>&1 || true
+    if ! kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration \
+         --no-headers 2>/dev/null | grep -q .; then
+      echo "WARNING: the admission webhooks could not be restored." >&2
+      echo "         Reinstate them with:  make deploy IMG=<image>" >&2
+    fi
+  fi
+  rm -f "$WEBHOOK_BACKUP"
   [[ -n "${OPERATOR_PID:-}" ]] && kill "$OPERATOR_PID" >/dev/null 2>&1 || true
   if [[ -n "${MANAGER_REPLICAS:-}" && "$MANAGER_REPLICAS" != "0" ]]; then
     kubectl scale deployment -n "$MANAGER_NS" "$MANAGER_DEPLOY" \
@@ -43,9 +57,11 @@ mkdir -p "$(dirname "$OUT")" \
 # A manager left running by an earlier invocation would reconcile alongside this
 # one, inflating both the update counters and the error ratio with write
 # conflicts — the panels would then picture that fight rather than the operator.
-if pgrep -f "exe/main --metrics-bind-address=:${METRICS_PORT}" >/dev/null 2>&1; then
+# Check the port rather than a process name: kind runs the in-cluster manager on
+# this host, so matching on "manager" would hit the operator's own pods.
+if ss -ltn "sport = :${METRICS_PORT}" 2>/dev/null | grep -q LISTEN; then
   echo "error: another local manager is already running on :${METRICS_PORT}" >&2
-  echo "       stop it first:  pkill -f 'exe/main --metrics-bind-address=:${METRICS_PORT}'" >&2
+  echo "       find it with:  ss -ltnp 'sport = :${METRICS_PORT}'" >&2
   exit 1
 fi
 
@@ -53,13 +69,25 @@ MANAGER_REPLICAS="$(kubectl get deployment -n "$MANAGER_NS" "$MANAGER_DEPLOY" \
   -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")"
 if [[ -n "$MANAGER_REPLICAS" && "$MANAGER_REPLICAS" != "0" ]]; then
   echo "==> standing down the in-cluster manager (${MANAGER_REPLICAS} replica(s)) for the capture"
+  # The webhooks live in that manager and are registered failurePolicy: fail, so
+  # with it down the API server rejects every WebApp write — which would leave
+  # the dashboard with nothing to plot. Park them and restore them on exit.
+  kubectl get validatingwebhookconfiguration,mutatingwebhookconfiguration \
+    -o yaml >"$WEBHOOK_BACKUP" 2>/dev/null || true
+  kubectl delete validatingwebhookconfiguration,mutatingwebhookconfiguration \
+    --all >/dev/null 2>&1 || true
   kubectl scale deployment -n "$MANAGER_NS" "$MANAGER_DEPLOY" --replicas=0 >/dev/null
   kubectl wait --for=delete pod -l control-plane=controller-manager \
     -n "$MANAGER_NS" --timeout=60s >/dev/null 2>&1 || true
 fi
 
 echo "==> starting the operator with a plaintext metrics endpoint"
-ENABLE_WEBHOOKS=false go run ./cmd/main.go \
+# Built and run directly rather than through `go run`: `go run` spawns the
+# compiled binary as a child, so killing it on cleanup leaves that child holding
+# the metrics port. A stale one then keeps answering scrapes, and the numbers
+# describe a previous run instead of this one.
+go build -o bin/manager ./cmd/main.go
+ENABLE_WEBHOOKS=false ./bin/manager \
   --metrics-bind-address=":${METRICS_PORT}" --metrics-secure=false \
   --health-probe-bind-address=:8082 >"$WORK/operator.log" 2>&1 &
 OPERATOR_PID=$!
@@ -69,6 +97,16 @@ curl --retry 40 --retry-delay 2 --retry-all-errors -sf "localhost:${METRICS_PORT
 # real but an order of magnitude above steady state, so it would stretch the y
 # axis and flatten everything else. Let it age out of the graph window first.
 kubectl delete webapp docs-demo --ignore-not-found >/dev/null 2>&1 || true
+
+# Pre-existing WebApps get reconciled on startup too, and their counts would end
+# up in the picture — a leftover load test would dominate the totals panel.
+existing="$(kubectl get webapp -A --no-headers 2>/dev/null | wc -l)"
+if (( existing > 0 )); then
+  echo "error: ${existing} WebApp(s) already exist; the capture would show their activity" >&2
+  echo "       remove them first:  kubectl delete webapp --all -A" >&2
+  exit 1
+fi
+
 echo "==> letting the startup burst settle"
 sleep 75
 
@@ -141,6 +179,12 @@ spec:
 EOF
   sleep 5
 done
+
+# A dashboard with nothing on it is not worth capturing; fail loudly instead.
+if ! kubectl get webapp docs-demo >/dev/null 2>&1; then
+  echo "error: the traffic WebApp was never created — nothing to plot" >&2
+  exit 1
+fi
 sleep 15   # let Prometheus finish the last rate() window
 
 echo "==> screenshotting with headless Chromium"
