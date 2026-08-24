@@ -10,8 +10,19 @@ jobs:
   test-e2e:
     permissions:
       contents: read
-    name: Run on Ubuntu
+    name: k8s ${{ matrix.kubernetes }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # The README states a supported range; exercising both ends of it makes
+      # that a verified fact rather than a claim. The middle is covered by the
+      # envtest version used in the unit suite.
+      matrix:
+        include:
+          - kubernetes: "1.29"
+            node_image: kindest/node:v1.29.14@sha256:8703bd94ee24e51b778d5556ae310c6c0fa67d761fae6379c8e0bb480e6fea29
+          - kubernetes: "1.36"
+            node_image: kindest/node:v1.36.1
     steps:
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -33,6 +44,8 @@ jobs:
         run: kind version
 
       - name: Running Test e2e
+        env:
+          KIND_NODE_IMAGE: ${{ matrix.node_image }}
         run: |
           go mod tidy
           make test-e2e

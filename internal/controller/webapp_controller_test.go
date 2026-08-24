@@ -250,6 +250,59 @@ var _ = Describe("WebApp Controller", func() {
 			Expect(cpu.String()).To(Equal("100m"))
 		})
 
+		It("injects the CPU request the HPA needs even without the webhooks", func() {
+			By("creating a WebApp with autoscaling and no resources at all")
+			bare := &platformv1.WebApp{
+				ObjectMeta: metav1.ObjectMeta{Name: "no-webhook", Namespace: testNamespace},
+				Spec: platformv1.WebAppSpec{
+					Image: testImage,
+					Port:  8080,
+					Autoscaling: &platformv1.AutoscalingSpec{
+						MinReplicas: 2, MaxReplicas: 5, CPUThresholdPercent: 70,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, bare)).To(Succeed())
+			defer func() {
+				Expect(k8sClient.Delete(ctx, bare)).To(Succeed())
+			}()
+
+			// envtest runs no admission webhooks here, which is exactly the
+			// situation of a Helm install with webhook.enable=false.
+			Expect(bare.Spec.Resources).To(BeNil(), "precondition: no webhook defaulting happened")
+
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{
+				NamespacedName: key("no-webhook"),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key("no-webhook-deployment"), deployment)).To(Succeed())
+
+			cpu := deployment.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			Expect(cpu.String()).To(Equal("100m"),
+				"the reconciler must not depend on admission having run")
+		})
+
+		It("does not inject a CPU request when autoscaling is disabled", func() {
+			deployment := &appsv1.Deployment{}
+			plain := &platformv1.WebApp{
+				ObjectMeta: metav1.ObjectMeta{Name: "no-autoscaling", Namespace: testNamespace},
+				Spec:       platformv1.WebAppSpec{Image: testImage, Port: 8080},
+			}
+			Expect(k8sClient.Create(ctx, plain)).To(Succeed())
+			defer func() {
+				Expect(k8sClient.Delete(ctx, plain)).To(Succeed())
+			}()
+
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{
+				NamespacedName: key("no-autoscaling"),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, key("no-autoscaling-deployment"), deployment)).To(Succeed())
+			Expect(deployment.Spec.Template.Spec.Containers[0].Resources.Requests).To(BeEmpty())
+		})
+
 		It("leaves the replica count to the HPA", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: webappKey})
 			Expect(err).NotTo(HaveOccurred())

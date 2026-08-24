@@ -17,7 +17,8 @@ Built with [Kubebuilder](https://book.kubebuilder.io/) and [controller-runtime](
 [Showcase](docs/showcase.md) ·
 [Installation](docs/installation.md) · [API reference](docs/api-reference.md) ·
 [Admission webhooks](docs/webhooks.md) · [Observability](docs/observability.md) ·
-[Troubleshooting](docs/troubleshooting.md) · [Design notes](docs/design.md)
+[Troubleshooting](docs/troubleshooting.md) · [Design notes](docs/design.md) ·
+[Prior art](docs/prior-art.md) · [Scale](docs/scale.md)
 
 ---
 
@@ -155,19 +156,35 @@ unreleased work and reference an image that may not exist yet.
 
 ### Option A — single manifest
 
+Two artifacts ship with every release:
+
 ```bash
+# Any cluster — no cert-manager required
 kubectl apply -f https://github.com/Mampiz/webapp-operator/releases/download/v1.0.0/install.yaml
+
+# With the admission webhooks — install cert-manager first
+kubectl apply -f https://github.com/Mampiz/webapp-operator/releases/download/v1.0.0/install-with-webhooks.yaml
 ```
+
+Without the webhooks the operator still reconciles correctly — schema defaults
+come from the API server and the reconciler applies the autoscaling CPU request
+itself. What is lost is the image-tag **policy**. See
+[Installation](docs/installation.md#what-you-give-up-without-the-webhooks).
 
 ### Option B — Helm
 
 ```bash
-helm install webapp-operator ./dist/chart          # webhooks off by default
-helm install webapp-operator ./dist/chart \
-  --set webhook.enable=true                        # requires cert-manager
+helm install webapp-operator \
+  oci://ghcr.io/mampiz/charts/webapp-operator --version 1.0.0 \
+  --namespace webapp-operator-system --create-namespace
+
+# opt in to webhooks (needs cert-manager) and to the ServiceMonitor + alerts
+helm install webapp-operator oci://ghcr.io/mampiz/charts/webapp-operator \
+  --set webhook.enable=true --set certManager.enabled=true \
+  --set prometheus.enabled=true
 ```
 
-Both install the CRD, RBAC, and the operator Deployment.
+All install paths bring the CRD, RBAC, and the operator Deployment.
 
 ### Supported Kubernetes versions
 
@@ -268,6 +285,20 @@ levels](https://sdk.operatorframework.io/docs/overview/operator-capabilities/).
 
 Roadmap for the partial levels: exercise a `v1alpha1 → v1` conversion webhook
 (level 2), and add request-rate-based scaling via custom metrics (level 5).
+
+## Scale
+
+Measured on a single-node kind cluster, not estimated
+([methodology](docs/scale.md)):
+
+| WebApps | Reconcile p50 | p95 | Peak queue depth | Manager RSS |
+|--:|--:|--:|--:|--:|
+| 100 | 25 ms | 50 ms | 1 | 34 MB |
+| 250 | 25 ms | 50 ms | 1 | 41 MB |
+
+Per-object reconcile cost is flat — the work per reconciliation does not depend
+on how many objects exist — and memory grows linearly with the watched set at
+roughly 45 KB per WebApp. Reproduce with `make scale-test`.
 
 ## Observability
 

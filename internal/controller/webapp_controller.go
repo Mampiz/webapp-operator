@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -247,12 +248,34 @@ func desiredReplicas(webapp *platformv1.WebApp) int32 {
 	return *webapp.Spec.Replicas
 }
 
+// defaultCPURequest is applied to the container when autoscaling is enabled and
+// no CPU request was given. It matches the value the defaulting webhook writes
+// onto the stored object.
+const defaultCPURequest = "100m"
+
 // containerResources returns the compute resources for the application container.
+//
+// CPU-based autoscaling is computed as a percentage of the CPU *request*, so an
+// HPA without one can never scale. The defaulting webhook normally supplies it,
+// but webhooks are optional (the Helm chart ships them disabled, since they need
+// cert-manager). A controller must never assume admission ran, so the request is
+// applied here as well: correctness cannot depend on an optional component.
 func containerResources(webapp *platformv1.WebApp) corev1.ResourceRequirements {
-	if webapp.Spec.Resources == nil {
-		return corev1.ResourceRequirements{}
+	resources := corev1.ResourceRequirements{}
+	if webapp.Spec.Resources != nil {
+		resources = *webapp.Spec.Resources.DeepCopy()
 	}
-	return *webapp.Spec.Resources
+	if webapp.Spec.Autoscaling == nil {
+		return resources
+	}
+	if _, ok := resources.Requests[corev1.ResourceCPU]; ok {
+		return resources
+	}
+	if resources.Requests == nil {
+		resources.Requests = corev1.ResourceList{}
+	}
+	resources.Requests[corev1.ResourceCPU] = resource.MustParse(defaultCPURequest)
+	return resources
 }
 
 // readinessProbe builds the readiness probe for the application container.

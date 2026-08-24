@@ -56,3 +56,68 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # The install manifests are what the README tells people to apply, so they have
+  # to exist as release assets and reference the image published above.
+  publish-manifests:
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the release and upload assets
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve the released image
+        id: image
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "ref=${REGISTRY}/${IMAGE_NAME}:${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build install manifests
+        run: make build-installer IMG=${{ steps.image.outputs.ref }}
+
+      - name: Package the Helm chart
+        run: |
+          helm package dist/chart --version "${GITHUB_REF_NAME#v}" \
+            --app-version "${GITHUB_REF_NAME#v}" --destination dist/
+
+      - name: Create or update the release with its assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/install.yaml
+            dist/install-with-webhooks.yaml
+            dist/*.tgz
+
+  # Publishing the chart as an OCI artifact means `helm install` does not require
+  # cloning the repository.
+  publish-chart:
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Package and push the chart
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          helm package dist/chart --version "$VERSION" --app-version "$VERSION" --destination dist/
+          helm push "dist/webapp-operator-${VERSION}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"

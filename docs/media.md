@@ -53,16 +53,44 @@ make screenshots
 
 `hack/screenshot-grafana.sh` starts Prometheus and Grafana as containers, points
 Prometheus at a locally running operator, provisions the dashboard from
-[`config/grafana/`](../config/grafana/), generates some reconcile traffic so the
+[`config/grafana/`](../config/grafana/), generates reconcile traffic so the
 panels are not empty, and captures `docs/assets/grafana.png` with headless
-Chromium.
+Chromium. It tears down everything it started.
 
-Grafana is a web UI, so here a browser automation tool is the right instrument —
+Grafana is a web UI, so here browser automation is the right instrument —
 [Playwright](https://playwright.dev/) runs from its official container image
 with `--network host`, which avoids installing Node, a browser or its system
 libraries on the host.
 
-The script tears down the containers it started when it finishes.
+### Things that had to be solved
+
+**The image ships browsers, not the npm package.** `require('playwright')`
+fails with `MODULE_NOT_FOUND` inside `mcr.microsoft.com/playwright`. The script
+installs `playwright-core` at the pinned version into the throwaway work
+directory; it carries the API without downloading browsers, and a matching
+version resolves the ones already under `/ms-playwright`.
+
+**Grafana would not boot: `RangeError: Incorrect locale information provided`.**
+Its bootstrap calls `Intl` APIs, and the container has no locale configured, so
+the page rendered Grafana's "failed to load its application files" fallback
+instead of a dashboard. Fixed by giving the browser context an explicit
+`locale: 'en-US'` and `timezoneId: 'UTC'`.
+
+**The capture is validated before it replaces anything.** An earlier version
+screenshotted whatever was on screen and overwrote a perfectly good image with a
+picture of that error page. The script now checks that panels actually rendered
+and exits non-zero otherwise, writing to a temporary file and moving it into
+place only on success. A failed run leaves the previous asset untouched.
+
+**Container ownership and file extensions.** The container runs as the invoking
+user (`--user $(id -u):$(id -g)`, `HOME=/work`) so the PNG is not written as
+root, and the temporary file ends in `.png` because Playwright infers the image
+format from the extension and rejects anything else.
+
+**Panels need a window that matches the data.** With `from=now-15m` a minute of
+traffic is an invisible sliver at the right edge. The script requests
+`from=now-5m` and generates a couple of minutes of alternating image updates, so
+the `rate()` panels have a shape rather than a single spike.
 
 ## Why generated rather than hand-captured
 

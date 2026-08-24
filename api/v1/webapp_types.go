@@ -36,8 +36,10 @@ const (
 // AutoscalingSpec defines the autoscaling behaviour for the WebApp.
 //
 // When set, the HorizontalPodAutoscaler owns the replica count and spec.replicas
-// is ignored. A CPU request is required for CPU-based autoscaling to work, so one
-// is defaulted by the admission webhook when the user does not provide it.
+// is ignored. A CPU request is required for CPU-based autoscaling to work; one is
+// defaulted by the admission webhook on the stored object, and independently by
+// the reconciler on the Deployment, so autoscaling works even where the optional
+// webhooks are not installed.
 // +kubebuilder:validation:XValidation:rule="self.maxReplicas >= self.minReplicas",message="maxReplicas must be greater than or equal to minReplicas"
 type AutoscalingSpec struct {
 	// MinReplicas is the minimum number of replicas the autoscaler will scale down to.
@@ -100,7 +102,9 @@ type WebAppSpec struct {
 
 	// Replicas is the desired number of replicas. Ignored when autoscaling is set,
 	// because the HorizontalPodAutoscaler owns the replica count in that case.
-	// Defaults to 1 when omitted.
+	// Defaults to 1 when omitted. The default is declared in the schema, so the
+	// API server applies it whether or not the admission webhooks are installed.
+	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
@@ -114,9 +118,14 @@ type WebAppSpec struct {
 	// +optional
 	Autoscaling *AutoscalingSpec `json:"autoscaling,omitempty"`
 
-	// Resources are the compute resources for the application container. A CPU
-	// request is required for CPU-based autoscaling; one is defaulted when
-	// autoscaling is enabled and no request is given.
+	// Resources are the compute resources for the application container.
+	//
+	// A CPU request is required for CPU-based autoscaling, because HPA target
+	// utilization is a percentage of the request. It cannot be expressed as a
+	// schema default because it is conditional on spec.autoscaling being set, so
+	// the defaulting webhook fills it in on the stored object and the reconciler
+	// applies the same value to the Deployment when the webhooks are not
+	// installed. See docs/design.md.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 

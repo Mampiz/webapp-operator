@@ -56,6 +56,9 @@ const (
 	// was given. HPA target utilization is a percentage of the request, so without
 	// one the HPA can never compute a value and never scales. 100m is small enough
 	// not to waste quota and large enough to produce a meaningful ratio.
+	//
+	// The reconciler applies the same value to the Deployment when the webhooks
+	// are not installed; this one makes the *stored object* self-describing.
 	defaultCPURequest = "100m"
 )
 

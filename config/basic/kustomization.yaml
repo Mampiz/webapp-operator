@@ -1,0 +1,29 @@
+# Webhook-free installation.
+#
+# Produces an install manifest that applies to any cluster, with no cert-manager
+# dependency. Compared with config/default it drops the webhook configurations
+# and the cert-manager Certificate/Issuer, and turns the webhook server off in
+# the manager.
+#
+# What is lost without the webhooks:
+#   - the image tag policy (mutable tags such as ":latest" are then accepted)
+#   - the managed-by label stamped on WebApp objects
+# Correctness is unaffected: schema defaults are applied by the API server, and
+# the reconciler applies the autoscaling CPU request itself.
+namespace: webapp-operator-system
+namePrefix: webapp-operator-
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+- metrics_service.yaml
+
+patches:
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+- path: manager_no_webhooks_patch.yaml
+  target:
+    kind: Deployment
+    name: controller-manager

@@ -16,12 +16,34 @@ namespaces where `WebApp` resources are created.
 
 ## Option A — single manifest
 
+Two artifacts are published with every release. Pick by whether you want the
+admission webhooks:
+
 ```bash
+# Any cluster. No cert-manager needed.
 kubectl apply -f https://github.com/Mampiz/webapp-operator/releases/download/v1.0.0/install.yaml
+
+# Adds the admission webhooks. Install cert-manager first (see below).
+kubectl apply -f https://github.com/Mampiz/webapp-operator/releases/download/v1.0.0/install-with-webhooks.yaml
 ```
 
-This bundles the CRD, RBAC, the `webapp-operator-system` namespace and the
-controller Deployment.
+`install.yaml` contains no `Certificate` or webhook configuration at all, and
+starts the manager with `ENABLE_WEBHOOKS=false`, so it applies cleanly to a
+cluster that has never heard of cert-manager.
+
+### What you give up without the webhooks
+
+| | With webhooks | Without |
+|---|---|---|
+| Mutable image tags (`:latest`) rejected | ✅ | ❌ accepted |
+| `app.kubernetes.io/managed-by` stamped on WebApps | ✅ | ❌ |
+| `spec.replicas` defaulted to 1 | ✅ | ✅ — schema default, applied by the API server |
+| CPU request injected for autoscaling | ✅ on the stored object | ✅ on the Deployment, by the reconciler |
+
+Nothing that affects **correctness** depends on the webhooks: the autoscaling
+CPU request is applied by the reconciler too, so an HPA works either way. What
+is lost is **policy** — the image-tag rule stops being enforced. See
+[Design notes](design.md#where-defaults-live).
 
 Verify:
 
@@ -37,13 +59,16 @@ webapps.platform.miportfolio.com   2026-08-24T10:12:31Z
 
 ## Option B — Helm
 
+The chart is published as an OCI artifact, so no clone is required:
+
 ```bash
-helm install webapp-operator ./dist/chart \
+helm install webapp-operator \
+  oci://ghcr.io/mampiz/charts/webapp-operator --version 1.0.0 \
   --namespace webapp-operator-system --create-namespace
 ```
 
-The chart installs with **webhooks disabled**, so it works on a cluster without
-cert-manager. Useful values:
+From a clone, `./dist/chart` works the same. The chart installs with **webhooks
+disabled**, matching `install.yaml`. Useful values:
 
 | Value | Default | Meaning |
 |---|---|---|
@@ -52,7 +77,20 @@ cert-manager. Useful values:
 | `manager.replicas` | `1` | Controller replicas; leader election picks one active |
 | `webhook.enable` | `false` | Enable admission webhooks (needs cert-manager) |
 | `certManager.enabled` | `false` | Render cert-manager `Certificate` resources |
-| `prometheus.enable` | `false` | Render the `ServiceMonitor` |
+| `prometheus.enabled` | `false` | Render the `ServiceMonitor` **and** the alerting rules |
+
+## Monitoring resources
+
+`ServiceMonitor` and `PrometheusRule` belong to `monitoring.coreos.com`, which
+does not exist without the Prometheus Operator, so they are excluded from the
+install manifests for the same reason the cert-manager kinds are:
+
+```bash
+helm upgrade webapp-operator ... --set prometheus.enabled=true   # Helm
+make install-monitoring                                          # kustomize
+```
+
+See [Observability](observability.md).
 
 ## Enabling the admission webhooks
 

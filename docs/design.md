@@ -68,6 +68,44 @@ utilization is a percentage of the request, so without one the HPA reports
 autoscaler, the defaulting webhook injects a request when autoscaling is enabled
 and none was given.
 
+## Where defaults live
+
+There are three places a default can be applied, and choosing among them is a
+correctness decision, not a style one.
+
+| Default | Applied by | Why there |
+|---|---|---|
+| `spec.replicas` → 1 | **CRD schema** (`+kubebuilder:default=1`) | The API server applies it. Always present, no components involved. |
+| CPU request when autoscaling is on | **Webhook** *and* **reconciler** | Conditional on another field, so it cannot be a schema default. |
+| `app.kubernetes.io/managed-by` label | **Webhook** only | Convenience, not correctness. |
+| Image tag policy | **Webhook** only | Policy, and inherently uncheckable by a static schema. |
+
+The rule behind that table: **anything correctness depends on must not live only
+in an optional component.**
+
+Admission webhooks are optional here — they need TLS certificates from
+cert-manager, so both the Helm chart and the plain `install.yaml` ship without
+them. If the autoscaling CPU request existed only in the defaulting webhook, then
+a default `helm install` plus a `WebApp` with autoscaling would silently
+reproduce the exact bug the webhook was written to prevent: an HPA reporting
+`<unknown>` forever, never scaling.
+
+So the request is applied twice, deliberately:
+
+- the **webhook** writes it onto the stored object, which makes the resource
+  self-describing — `kubectl get webapp -o yaml` shows what will actually run;
+- the **reconciler** applies the same value when building the Deployment,
+  because a controller must never assume admission ran.
+
+They agree on one constant, and a test reconciles a `WebApp` with autoscaling and
+no resources at all — with no webhook in the path — asserting the Deployment
+still carries the request.
+
+Policy defaults are the opposite case and are left webhook-only on purpose.
+Losing the image-tag rule when webhooks are absent degrades the guarantees the
+platform offers, but it cannot corrupt a workload. That trade-off is stated
+explicitly in the installation guide rather than hidden.
+
 ## Removing an optional block deletes its object
 
 Owner references only garbage-collect when the *parent* is deleted. Removing

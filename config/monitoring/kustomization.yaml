@@ -1,0 +1,12 @@
+# ServiceMonitor + PrometheusRule for the Prometheus Operator.
+#
+# Kept out of the install manifests because both kinds belong to
+# monitoring.coreos.com, which does not exist on a cluster without the
+# Prometheus Operator — including them unconditionally would break `kubectl
+# apply` there, exactly as the cert-manager kinds used to.
+#
+#   kubectl apply -k config/monitoring
+namespace: webapp-operator-system
+namePrefix: webapp-operator-
+resources:
+- ../prometheus

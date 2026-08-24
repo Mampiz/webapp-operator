@@ -1,0 +1,51 @@
+{{- if .Values.prometheus.enabled }}
+# Alerting rules for the operator, mirroring config/prometheus/alerts.yaml (the
+# copy the kustomize install path uses). Prometheus's own {{ "{{ $labels }}" }}
+# expressions are escaped so Helm passes them through untouched.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "webapp-operator.fullname" . }}-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "webapp-operator.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+spec:
+  groups:
+  - name: webapp-operator.rules
+    rules:
+    - alert: WebAppOperatorReconcileErrors
+      expr: "sum(rate(webapp_reconcile_total{result=\"error\"}[5m]))\n  / clamp_min(sum(rate(webapp_reconcile_total[5m])),\
+        \ 0.001) > 0.1\n"
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: WebApp reconciles are failing
+        description: More than 10% of WebApp reconciles have failed over the last 5 minutes. Check the controller
+          logs and the Degraded condition on the affected WebApps.
+    - alert: WebAppUnavailable
+      expr: 'webapp_ready_replicas == 0
+
+        '
+      for: 15m
+      labels:
+        severity: warning
+      annotations:
+        summary: WebApp {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.name }}" }} has no ready replicas
+        description: The WebApp has reported zero ready replicas for 15 minutes. Inspect the pods of the
+          generated Deployment.
+    - alert: WebAppOperatorWorkQueueBacklog
+      expr: 'sum(workqueue_depth{name="webapp"}) > 10
+
+        '
+      for: 15m
+      labels:
+        severity: warning
+      annotations:
+        summary: WebApp controller work queue is backing up
+        description: The reconcile work queue has held more than 10 items for 15 minutes, so desired state
+          is not being applied promptly.
+{{- end }}

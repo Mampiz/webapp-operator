@@ -1,0 +1,8 @@
+# The manager enables its admission webhooks unless told otherwise. This overlay
+# ships without cert-manager, so there is no serving certificate and the webhook
+# server must stay off — otherwise the manager fails to start.
+- op: add
+  path: /spec/template/spec/containers/0/env
+  value:
+    - name: ENABLE_WEBHOOKS
+      value: "false"

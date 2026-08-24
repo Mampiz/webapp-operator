@@ -72,6 +72,10 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 KIND_CLUSTER ?= webapp-operator-test-e2e
 
 .PHONY: setup-test-e2e
+# KIND_NODE_IMAGE pins the Kubernetes version of the e2e cluster, which is how CI
+# exercises both ends of the supported range instead of only kind's default.
+KIND_IMAGE_ARG = $(if $(KIND_NODE_IMAGE),--image $(KIND_NODE_IMAGE),)
+
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
@@ -82,7 +86,7 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
 		*) \
 			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
+			$(KIND) create cluster --name $(KIND_CLUSTER) $(KIND_IMAGE_ARG) ;; \
 	esac
 
 .PHONY: test-e2e
@@ -145,10 +149,13 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	rm Dockerfile.cross
 
 .PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+build-installer: manifests generate kustomize ## Generate both consolidated install manifests.
 	mkdir -p dist
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default > dist/install.yaml
+	# Applies to any cluster: no webhooks, no cert-manager dependency.
+	"$(KUSTOMIZE)" build config/basic > dist/install.yaml
+	# Adds the admission webhooks; requires cert-manager to be installed first.
+	"$(KUSTOMIZE)" build config/default > dist/install-with-webhooks.yaml
 
 ##@ Deployment
 
@@ -170,6 +177,14 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
+
+.PHONY: install-monitoring
+install-monitoring: kustomize ## Install the ServiceMonitor and alerting rules (needs the Prometheus Operator).
+	"$(KUSTOMIZE)" build config/monitoring | $(KUBECTL) apply -f -
+
+.PHONY: scale-test
+scale-test: ## Measure reconcile latency, queue depth and manager resources at N WebApps.
+	@./hack/scale-test.sh $(or $(SIZES),100)
 
 .PHONY: showcase
 showcase: ## Run the capability showcase against an already-installed operator.

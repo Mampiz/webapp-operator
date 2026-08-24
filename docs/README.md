@@ -18,6 +18,8 @@ HorizontalPodAutoscaler and a PodDisruptionBudget.
 | [Observability](observability.md) | Metrics, the Grafana dashboard, alerting rules and events. |
 | [Troubleshooting](troubleshooting.md) | Symptom-driven guide to the failures you are most likely to hit. |
 | [Design notes](design.md) | Why the operator behaves the way it does, and the trade-offs taken. |
+| [Prior art](prior-art.md) | Honest comparison with Helm charts, kro and Knative — including when *not* to use this. |
+| [Scale](scale.md) | Measured behaviour as the number of WebApps grows. |
 | [Recording the media](media.md) | How the GIF and screenshots in these docs are generated. |
 
 ## At a glance
