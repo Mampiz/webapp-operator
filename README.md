@@ -11,6 +11,14 @@ A Kubernetes [Operator](https://kubernetes.io/docs/concepts/extend-kubernetes/op
 
 Built with [Kubebuilder](https://book.kubebuilder.io/) and [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
 
+![The operator in action](docs/assets/demo.gif)
+
+📚 **[Documentation](docs/)** — [Getting started](docs/getting-started.md) ·
+[Showcase](docs/showcase.md) ·
+[Installation](docs/installation.md) · [API reference](docs/api-reference.md) ·
+[Admission webhooks](docs/webhooks.md) · [Observability](docs/observability.md) ·
+[Troubleshooting](docs/troubleshooting.md) · [Design notes](docs/design.md)
+
 ---
 
 ## Why?
@@ -282,7 +290,7 @@ deletion, so dashboards do not keep showing objects that no longer exist.
 
 Scraping is wired through the `ServiceMonitor` in `config/prometheus/` (for the Prometheus Operator), alongside a [`PrometheusRule`](config/prometheus/alerts.yaml) with alerts for sustained reconcile failures, WebApps stuck without ready replicas, and a backing-up work queue. A ready-made Grafana dashboard lives at [`config/grafana/webapp-operator-dashboard.json`](config/grafana/webapp-operator-dashboard.json) — import it and select your Prometheus data source.
 
-![Grafana dashboard](docs/grafana.png)
+![Grafana dashboard](docs/assets/grafana.png)
 
 ## Development
 
@@ -292,11 +300,13 @@ make run                  # run the operator locally against the current cluster
 make test                 # run the envtest integration suite
 make build-installer IMG=<your-image>   # regenerate dist/install.yaml
 make demo                 # scripted end-to-end walkthrough on a fresh kind cluster
+make docs-media           # regenerate the GIF and screenshots under docs/assets
 ```
 
 Design decisions and their trade-offs are written up in
 [`docs/design.md`](docs/design.md); release history is in
-[`CHANGELOG.md`](CHANGELOG.md).
+[`CHANGELOG.md`](CHANGELOG.md). The images in the docs are generated, not
+hand-captured — see [`docs/media.md`](docs/media.md).
 
 The core reconcile logic lives in [`internal/controller/webapp_controller.go`](internal/controller/webapp_controller.go); the API types in [`api/v1/webapp_types.go`](api/v1/webapp_types.go).
 

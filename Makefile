@@ -171,6 +171,25 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 
+.PHONY: showcase
+showcase: ## Run the capability showcase against an already-installed operator.
+	@./hack/showcase.sh
+
+.PHONY: record-demo
+record-demo: ## Record the terminal demo and render docs/assets/demo.gif.
+	@./hack/record-demo.sh
+
+.PHONY: record-showcase
+record-showcase: ## Record the capability showcase and render docs/assets/showcase.gif.
+	@TARGET=showcase SKIP_PREPARE=1 ./hack/record-demo.sh
+
+.PHONY: screenshots
+screenshots: ## Capture docs/assets/grafana.png from a live Grafana instance.
+	@./hack/screenshot-grafana.sh
+
+.PHONY: docs-media
+docs-media: record-demo record-showcase screenshots ## Regenerate every generated asset under docs/assets.
+
 .PHONY: demo
 demo: ## Run the scripted end-to-end demo on a local kind cluster (see hack/demo.sh).
 	@CLUSTER=$(or $(CLUSTER),webapp-demo) IMG=$(IMG) ./hack/demo.sh
