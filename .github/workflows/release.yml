@@ -77,11 +77,30 @@ jobs:
       - name: Resolve the released image
         id: image
         run: |
+          # Container references must be lowercase, and github.repository keeps
+          # the owner's original casing ("Mampiz"). docker/metadata-action
+          # lowercases for the build, but this reference is built by hand and
+          # would otherwise be baked into the install manifests as unpullable.
           VERSION="${GITHUB_REF_NAME#v}"
-          echo "ref=${REGISTRY}/${IMAGE_NAME}:${VERSION}" >> "$GITHUB_OUTPUT"
+          IMAGE="$(echo "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          echo "ref=${IMAGE}:${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build install manifests
         run: make build-installer IMG=${{ steps.image.outputs.ref }}
+
+      - name: Verify the manifests reference a pullable image
+        run: |
+          # A manifest that cannot pull its image is worse than no manifest: the
+          # failure surfaces as ImagePullBackOff on someone else's cluster.
+          ref="$(grep -oE 'image: [^ ]+' dist/install.yaml | tail -1 | cut -d' ' -f2)"
+          echo "install.yaml references: ${ref}"
+          if [ "${ref}" != "$(echo "${ref}" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "::error::image reference is not lowercase: ${ref}" && exit 1
+          fi
+          case "${ref}" in
+            "${{ steps.image.outputs.ref }}") ;;
+            *) echo "::error::expected ${{ steps.image.outputs.ref }}" && exit 1 ;;
+          esac
 
       - name: Package the Helm chart
         run: |
@@ -125,7 +144,9 @@ jobs:
 
       - name: Package and push the chart
         run: |
+          # OCI repository names must be lowercase; the owner login may not be.
           VERSION="${GITHUB_REF_NAME#v}"
+          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           helm package dist/chart --version "$VERSION" --app-version "$VERSION" --destination dist/
           helm push "dist/webapp-operator-${VERSION}.tgz" \
-            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"
+            "oci://${{ env.REGISTRY }}/${OWNER}/charts"
