@@ -20,6 +20,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
+
 	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
 )
 
@@ -51,6 +55,46 @@ var _ = Describe("WebApp Webhook", func() {
 			obj.Labels = map[string]string{"app.kubernetes.io/managed-by": "helm"}
 			Expect(defaulter.Default(ctx, obj)).To(Succeed())
 			Expect(obj.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "helm"))
+		})
+
+		It("defaults replicas to 1 when omitted", func() {
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+			Expect(obj.Spec.Replicas).NotTo(BeNil())
+			Expect(*obj.Spec.Replicas).To(Equal(int32(1)))
+		})
+
+		It("keeps an explicit replica count, including zero", func() {
+			obj.Spec.Replicas = ptr.To(int32(0))
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+			Expect(*obj.Spec.Replicas).To(Equal(int32(0)))
+		})
+
+		It("injects a CPU request when autoscaling is enabled without one", func() {
+			obj.Spec.Autoscaling = &platformv1.AutoscalingSpec{
+				MinReplicas: 1, MaxReplicas: 3, CPUThresholdPercent: 70,
+			}
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+
+			cpu := obj.Spec.Resources.Requests[corev1.ResourceCPU]
+			Expect(cpu.String()).To(Equal("100m"))
+		})
+
+		It("does not override a CPU request the user provided", func() {
+			obj.Spec.Autoscaling = &platformv1.AutoscalingSpec{
+				MinReplicas: 1, MaxReplicas: 3, CPUThresholdPercent: 70,
+			}
+			obj.Spec.Resources = &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+			}
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+
+			cpu := obj.Spec.Resources.Requests[corev1.ResourceCPU]
+			Expect(cpu.String()).To(Equal("250m"))
+		})
+
+		It("does not inject resources when autoscaling is disabled", func() {
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+			Expect(obj.Spec.Resources).To(BeNil())
 		})
 	})
 

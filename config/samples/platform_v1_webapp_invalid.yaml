@@ -1,0 +1,21 @@
+# A deliberately invalid WebApp, used to demonstrate admission control.
+#
+# Applying this manifest is REJECTED by the validating webhook, because a mutable
+# tag makes a deployment irreproducible: the same spec can silently run different
+# code tomorrow.
+#
+#   $ kubectl apply -f config/samples/platform_v1_webapp_invalid.yaml
+#   Error from server (Forbidden): admission webhook "vwebapp-v1.kb.io" denied the request:
+#   spec.image "nginx:latest" uses the mutable "latest" tag; pin an explicit version
+#   for reproducibility
+#
+# The schema itself catches other classes of mistake before the webhook runs, e.g.
+# port: 70000 (out of range) or maxReplicas < minReplicas (cross-field CEL rule).
+apiVersion: platform.miportfolio.com/v1
+kind: WebApp
+metadata:
+  name: webapp-sample-invalid
+spec:
+  image: nginx:latest
+  replicas: 1
+  port: 8080

@@ -35,10 +35,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # No "latest" tag on purpose: this operator rejects mutable tags for the
+          # workloads it manages, so it does not publish one for itself either.
+          # Consumers pin a version; dist/install.yaml and the Helm chart do too.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
 
       - name: Set up QEMU (for multi-arch builds)
         uses: docker/setup-qemu-action@v3

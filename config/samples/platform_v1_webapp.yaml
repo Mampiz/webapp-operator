@@ -6,10 +6,25 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: webapp-sample
 spec:
-  image: nginx:latest
+  # Tags must be explicit and immutable: the validating webhook rejects "latest".
+  # This image listens on 8080 as a non-root user, which works with the dropped
+  # capabilities the operator applies by default (binding :80 would need
+  # CAP_NET_BIND_SERVICE).
+  image: nginxinc/nginx-unprivileged:1.27-alpine
   replicas: 2
-  port: 80
+  port: 8080
+  readinessPath: /
+  security:
+    runAsNonRoot: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
   autoscaling:
     minReplicas: 2
     maxReplicas: 10
     cpuThresholdPercent: 70
+  podDisruptionBudget:
+    minAvailable: 1

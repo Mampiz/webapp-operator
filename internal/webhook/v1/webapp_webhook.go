@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -44,8 +47,17 @@ func SetupWebAppWebhookWithManager(mgr ctrl.Manager) error {
 // WebAppCustomDefaulter sets default values on WebApp resources on create/update.
 type WebAppCustomDefaulter struct{}
 
-// managedByLabel marks resources that this operator is responsible for.
-const managedByLabel = "app.kubernetes.io/managed-by"
+const (
+	// managedByLabel marks resources that this operator is responsible for.
+	managedByLabel = "app.kubernetes.io/managed-by"
+	// defaultReplicas is used when spec.replicas is omitted.
+	defaultReplicas int32 = 1
+	// defaultCPURequest is injected when autoscaling is enabled but no CPU request
+	// was given. HPA target utilization is a percentage of the request, so without
+	// one the HPA can never compute a value and never scales. 100m is small enough
+	// not to waste quota and large enough to produce a meaningful ratio.
+	defaultCPURequest = "100m"
+)
 
 // Default implements webhook.CustomDefaulter. It runs before schema validation,
 // so it can fill in values that are then validated as if the user had set them.
@@ -59,6 +71,26 @@ func (d *WebAppCustomDefaulter) Default(_ context.Context, obj *platformv1.WebAp
 	}
 	if _, ok := obj.Labels[managedByLabel]; !ok {
 		obj.Labels[managedByLabel] = "webapp-operator"
+	}
+
+	// spec.replicas is optional; a WebApp without an explicit count means "one".
+	if obj.Spec.Replicas == nil {
+		obj.Spec.Replicas = ptr.To(defaultReplicas)
+	}
+
+	// CPU-based autoscaling is meaningless without a CPU request: make the
+	// resource self-consistent instead of silently shipping an HPA that reports
+	// <unknown> forever.
+	if obj.Spec.Autoscaling != nil {
+		if obj.Spec.Resources == nil {
+			obj.Spec.Resources = &corev1.ResourceRequirements{}
+		}
+		if obj.Spec.Resources.Requests == nil {
+			obj.Spec.Resources.Requests = corev1.ResourceList{}
+		}
+		if _, ok := obj.Spec.Resources.Requests[corev1.ResourceCPU]; !ok {
+			obj.Spec.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(defaultCPURequest)
+		}
 	}
 
 	return nil

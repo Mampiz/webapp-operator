@@ -19,6 +19,14 @@ package controller
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	platformv1 "github.com/Mampiz/webapp-operator/api/v1"
+)
+
+// Metric label names, factored out so the label sets cannot drift apart.
+const (
+	labelNamespace = "namespace"
+	labelName      = "name"
 )
 
 var (
@@ -40,10 +48,50 @@ var (
 		},
 		[]string{"resource", "operation"},
 	)
+
+	// webappReadyReplicas exposes the state of the *operand*, not the operator:
+	// how many pods are actually serving behind each WebApp. Cardinality is bounded
+	// by the number of WebApp objects, which is a user-controlled but small set.
+	webappReadyReplicas = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "webapp_ready_replicas",
+			Help: "Number of ready pods behind each WebApp.",
+		},
+		[]string{labelNamespace, labelName},
+	)
+
+	// webappInfo is an info-style metric: always 1, carrying descriptive labels
+	// that can be joined onto other series (e.g. to break down by image).
+	webappInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "webapp_info",
+			Help: "Static information about each WebApp; the value is always 1.",
+		},
+		[]string{labelNamespace, labelName, "image"},
+	)
 )
 
 func init() {
 	// Register with controller-runtime's registry so the metrics are served on
 	// the manager's existing /metrics endpoint.
-	metrics.Registry.MustRegister(reconcileTotal, childOperationsTotal)
+	metrics.Registry.MustRegister(reconcileTotal, childOperationsTotal, webappReadyReplicas, webappInfo)
+}
+
+// recordWebAppMetrics publishes the observed operand state for one WebApp.
+func recordWebAppMetrics(webapp *platformv1.WebApp, ready int32) {
+	id := prometheus.Labels{labelNamespace: webapp.Namespace, labelName: webapp.Name}
+	webappReadyReplicas.With(id).Set(float64(ready))
+
+	// The image is a label, so a rollout would otherwise leave the previous
+	// image's series behind forever. Drop this WebApp's series before re-adding.
+	webappInfo.DeletePartialMatch(id)
+	webappInfo.WithLabelValues(webapp.Namespace, webapp.Name, webapp.Spec.Image).Set(1)
+}
+
+// forgetWebAppMetrics removes the series of a WebApp that no longer exists, so
+// deleted objects do not stay visible in dashboards and alerts.
+func forgetWebAppMetrics(namespace, name string) {
+	id := prometheus.Labels{labelNamespace: namespace, labelName: name}
+	webappReadyReplicas.DeletePartialMatch(id)
+	webappInfo.DeletePartialMatch(id)
 }

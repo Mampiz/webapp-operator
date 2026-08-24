@@ -1,0 +1,70 @@
+# Alerting rules for the WebApp operator.
+#
+# Thresholds are deliberately tied to how this controller behaves rather than to
+# round numbers: controller-runtime retries failed reconciles with exponential
+# backoff, so a transient API error self-heals within seconds and must not page.
+# Every rule therefore fires only on a condition that is still true after the
+# retry budget would have absorbed a blip.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: webapp-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: webapp-operator-alerts
+  namespace: system
+spec:
+  groups:
+    - name: webapp-operator.rules
+      rules:
+        - alert: WebAppOperatorReconcileErrors
+          # More than 10% of reconciles failing for 10 minutes means the failure
+          # survived many backoff retries: it is a real fault (bad RBAC, admission
+          # rejection, API server trouble), not a blip. The ratio, rather than an
+          # absolute count, keeps the rule valid as the number of WebApps grows.
+          expr: |
+            sum(rate(webapp_reconcile_total{result="error"}[5m]))
+              / clamp_min(sum(rate(webapp_reconcile_total[5m])), 0.001) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: WebApp reconciles are failing
+            description: >-
+              More than 10% of WebApp reconciles have failed over the last 5 minutes.
+              Check the controller logs and the Degraded condition on the affected WebApps.
+
+        - alert: WebAppUnavailable
+          # A WebApp with Available=False for 15 minutes has outlived any normal
+          # rollout: image pull backoff, failing readiness probes or insufficient
+          # cluster capacity. 15m is longer than a typical rolling update plus
+          # image pull, so healthy deploys never trip it.
+          # Uses the operator's own operand metric, so the rule works without
+          # kube-state-metrics being configured to export custom resources.
+          expr: |
+            webapp_ready_replicas == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: WebApp {{ $labels.namespace }}/{{ $labels.name }} has no ready replicas
+            description: >-
+              The WebApp has reported zero ready replicas for 15 minutes.
+              Inspect the pods of the generated Deployment.
+
+        - alert: WebAppOperatorWorkQueueBacklog
+          # The work queue should drain continuously; a sustained depth means the
+          # controller cannot keep up or is stuck on a slow/blocking reconcile.
+          # 10 items for 15m is well above the transient spikes seen when many
+          # WebApps are created at once.
+          expr: |
+            sum(workqueue_depth{name="webapp"}) > 10
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: WebApp controller work queue is backing up
+            description: >-
+              The reconcile work queue has held more than 10 items for 15 minutes,
+              so desired state is not being applied promptly.

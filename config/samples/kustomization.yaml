@@ -1,4 +1,6 @@
 ## Append samples of your project ##
+## platform_v1_webapp_invalid.yaml is intentionally excluded: it exists to
+## demonstrate the validating webhook rejecting it, so applying it must fail.
 resources:
 - platform_v1_webapp.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

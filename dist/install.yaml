@@ -22,7 +22,20 @@ spec:
     singular: webapp
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Available")].status
+      name: Available
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: WebApp is the Schema for the webapps API
@@ -48,12 +61,13 @@ spec:
             description: spec defines the desired state of WebApp
             properties:
               autoscaling:
-                description: AutoscalingSpec defines the autoscaling behaviour for
-                  the WebApp.
+                description: Autoscaling enables a HorizontalPodAutoscaler for this
+                  WebApp.
                 properties:
                   cpuThresholdPercent:
-                    description: CPUThresholdPercent is the target average CPU utilization
-                      (1-100) that triggers scaling.
+                    description: |-
+                      CPUThresholdPercent is the target average CPU utilization, expressed as a
+                      percentage of the container's CPU *request*.
                     format: int32
                     maximum: 100
                     minimum: 1
@@ -79,23 +93,143 @@ spec:
                 - message: maxReplicas must be greater than or equal to minReplicas
                   rule: self.maxReplicas >= self.minReplicas
               image:
-                description: Image is the container image to be used for the web application.
-                  It should be a valid image reference, e.g., "nginx:latest".
+                description: |-
+                  Image is the container image to run. The tag must be explicit and immutable:
+                  "latest" and untagged references are rejected by the validating webhook so
+                  that deployments stay reproducible. Digests (image@sha256:...) are allowed.
+                  The optional leading group is the registry host, which may carry a port
+                  (myregistry:5000/app:1.0) and must not be mistaken for a tag.
+                minLength: 1
+                pattern: ^([a-zA-Z0-9._-]+(:[0-9]+)?/)?[a-zA-Z0-9][a-zA-Z0-9._/-]*(:[a-zA-Z0-9._-]+)?(@sha256:[a-f0-9]{64})?$
                 type: string
+              podDisruptionBudget:
+                description: PodDisruptionBudget creates a PodDisruptionBudget for
+                  the WebApp pods.
+                properties:
+                  maxUnavailable:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MaxUnavailable is the number or percentage of pods
+                      that may be unavailable.
+                    x-kubernetes-int-or-string: true
+                  minAvailable:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MinAvailable is the number or percentage of pods
+                      that must stay available.
+                    x-kubernetes-int-or-string: true
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of minAvailable or maxUnavailable must be set
+                  rule: has(self.minAvailable) != has(self.maxUnavailable)
               port:
-                description: Port is the port on which the web application will listen.
-                  It should be a valid port number (1-65535).
+                description: Port is the port the application listens on.
                 format: int32
+                maximum: 65535
+                minimum: 1
                 type: integer
+              readinessPath:
+                description: |-
+                  ReadinessPath is the HTTP path probed for readiness on spec.port. When
+                  omitted a TCP connection to spec.port is used instead, which works for any
+                  listening process without assuming an HTTP endpoint exists.
+                pattern: ^/.*$
+                type: string
               replicas:
-                description: Replicas is the desired number of replicas for the web
-                  application. It should be a non-negative integer.
+                description: |-
+                  Replicas is the desired number of replicas. Ignored when autoscaling is set,
+                  because the HorizontalPodAutoscaler owns the replica count in that case.
+                  Defaults to 1 when omitted.
                 format: int32
+                minimum: 0
                 type: integer
+              resources:
+                description: |-
+                  Resources are the compute resources for the application container. A CPU
+                  request is required for CPU-based autoscaling; one is defaulted when
+                  autoscaling is enabled and no request is given.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              security:
+                description: Security configures the image-dependent pod hardening
+                  options.
+                properties:
+                  readOnlyRootFilesystem:
+                    description: |-
+                      ReadOnlyRootFilesystem mounts the container root filesystem read-only.
+                      Images that write to disk at runtime need writable volumes instead.
+                    type: boolean
+                  runAsNonRoot:
+                    description: |-
+                      RunAsNonRoot rejects the container if the image would start as root.
+                      Requires an image that declares a non-root USER.
+                    type: boolean
+                  runAsUser:
+                    description: RunAsUser overrides the UID the container runs as.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                type: object
             required:
             - image
             - port
-            - replicas
             type: object
           status:
             description: status defines the observed state of WebApp
@@ -105,10 +239,10 @@ spec:
                   conditions represent the current state of the WebApp resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
+                  Condition types reported by this operator:
+                  - "Available": the desired replicas are ready
+                  - "Progressing": the Deployment is still rolling out
+                  - "Degraded": reconciliation failed to reach the desired state
 
                   The status of each condition is one of True, False, or Unknown.
                 items:
@@ -169,6 +303,16 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the .metadata.generation this status
+                  was computed from.
+                format: int64
+                type: integer
+              readyReplicas:
+                description: readyReplicas is the number of pods currently ready behind
+                  this WebApp.
+                format: int32
+                type: integer
             type: object
         required:
         - spec
@@ -295,6 +439,18 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
