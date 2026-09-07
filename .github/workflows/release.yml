@@ -108,7 +108,7 @@ jobs:
             --app-version "${GITHUB_REF_NAME#v}" --destination dist/
 
       - name: Create or update the release with its assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           # Published, not a draft: a draft release keeps its assets on an
