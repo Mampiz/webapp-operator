@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-08
+
 ### Added
 - **`v1alpha1` API version and a conversion webhook.** `v1` is now the storage
   version; `v1alpha1` remains served (and marked deprecated) so existing
